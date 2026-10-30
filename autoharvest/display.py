@@ -122,7 +122,8 @@ def display_sync_plan_table(plan: SyncPlan, is_dry_run: bool = True) -> None:
         elif item.status == SyncStatus.IGNORED_WINDOW:
             by_inc = item.ignored_by_incident
             by_ref = f"PG#{by_inc.incident_number}" if by_inc else "prior alert"
-            status_badge = f"[dim]⚡ Ignored (<1h since {by_ref})[/]"
+            win_str = "<30m" if item.window_hours == 0.5 else (f"<{item.window_hours:.1f}h" if item.window_hours != 1.0 else "<1h")
+            status_badge = f"[dim]⚡ Ignored ({win_str} since {by_ref})[/]"
             hours_str = "[dim]0.00h[/]"
         elif item.status == SyncStatus.IGNORED_NOT_ONCALL:
             status_badge = "[dim]🚫 Not On-Call (Outside shift)[/]"
@@ -171,8 +172,17 @@ def display_sync_plan_table(plan: SyncPlan, is_dry_run: bool = True) -> None:
         f"• [bold green]Bookable On-Call Alerts:[/] {bookable_count} alert(s) ({total_bookable_hours:.2f} hours)",
         f"  ├─ [bold cyan]Already Logged in Harvest:[/] {already_count} alert(s) ({already_hours:.2f} hours)",
         f"  └─ [bold yellow]New Alerts to Log:[/] {pending_count} alert(s) ({pending_hours:.2f} hours)",
-        f"• [dim]Ignored Alerts (Within 1h of on-call alert):[/] {ignored_count} alert(s) (0.00 hours)",
     ])
+    if pending_count > 0:
+        sociable_pending = [i for i in plan.pending_items if i.is_sociable]
+        unsociable_pending = [i for i in plan.pending_items if not i.is_sociable]
+        summary_lines.extend([
+            f"      ├─ [green]Sociable Hours ({plan.sociable_hours:.2f}h):[/] {len(sociable_pending)} alert(s) ({sum(i.hours for i in sociable_pending):.2f} hrs)",
+            f"      └─ [green]Unsociable Hours ({plan.unsociable_hours:.2f}h):[/] {len(unsociable_pending)} alert(s) ({sum(i.hours for i in unsociable_pending):.2f} hrs)",
+        ])
+    summary_lines.append(
+        f"• [dim]Ignored Alerts (Within active alert window):[/] {ignored_count} alert(s) (0.00 hours)"
+    )
     if plan.non_oncall_ignored_count > 0:
         summary_lines.append(
             f"• [dim]Ignored Alerts (Outside Scheduled On-Call Shifts):[/] {plan.non_oncall_ignored_count} alert(s)"

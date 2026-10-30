@@ -99,6 +99,8 @@ class SyncItem:
     ignored_by_incident: Optional[AcknowledgedIncident] = None
     shift: Optional[PagerDutyShift] = None
     error_message: Optional[str] = None
+    is_sociable: bool = False
+    window_hours: float = 1.0
 
     @property
     def formatted_note(self) -> str:
@@ -116,6 +118,8 @@ class SyncPlan:
     project_id: int
     task_id: int
     hours_per_alert: float = 1.0
+    sociable_hours: float = 0.5
+    unsociable_hours: float = 1.0
     shifts: list[PagerDutyShift] = field(default_factory=list)
     non_oncall_ignored_count: int = 0
 

@@ -9,7 +9,11 @@ When you finish an on-call shift or want to log your weekly on-call hours, `auto
 ## Features
 
 - **Accurate Acknowledged Alert Tracking**: Queries PagerDuty's incident audit trail (`/log_entries`) to find all incidents you personally acknowledged, rather than only open or currently assigned ones.
-- **1-Hour Bookable Windows**: Each initial alert creates 1 hour of bookable time. Any alerts that occur within that hour are automatically ignored/suppressed. The next bookable hour starts with the next alert that occurs after the end of the previous window.
+- **Sociable vs. Unsociable Hours Windowing**:
+  - **Sociable Hours**: `08:30 to 00:00` (Weekends) & `17:30 to 00:00` (Weekdays). Alerts during sociable hours are booked in **0.5-hour chunks** with a 30-minute suppression window.
+  - **Unsociable Hours**: All other on-call times (e.g. overnight `00:00 to 08:30` on weekends, `00:00 to 17:30` on weekdays). Alerts during unsociable hours are booked in **1.0-hour chunks** with a 60-minute suppression window.
+  - Any subsequent alerts that occur within an active window are automatically suppressed/ignored. The next bookable time starts with the next alert that occurs after the active window expires.
+- **Scheduled On-Call Shift Filtering**: Automatically matches alerts against your PagerDuty on-call shifts (`/oncalls`). Daytime alerts during normal office hours or days you are not scheduled on-call are excluded by default.
 - **Tableau-Compatible Naming Convention**: Formats time entry notes strictly as required for Tableau analytics:
   `PG#<IncidentNo.> - <Impacted Service> - <Summary>` (e.g. `PG#267540 - Webservers - SSL Certificate for www.sohonet.com due to expire soon`).
 - **Duplicate Prevention (100% Idempotent)**: Checks existing Harvest time entries using `PG#<IncidentNo.>` tags and external reference links. Running the script multiple times will never double-count hours.
@@ -138,7 +142,9 @@ autoharvest sync --shift --hours-per-alert 0.5 --apply
 - `--until <DATE>`: End date/time (ISO 8601 or `YYYY-MM-DD`).
 - `--show-non-oncall`: Include daytime / non-oncall alerts in the preview table (marked as ignored).
 - `--all-alerts`: Process all acknowledged alerts without filtering to scheduled on-call shifts.
-- `--hours-per-alert <FLOAT>`: Override hours per alert (default from `.env` or 1.0).
+- `--sociable-hours <FLOAT>`: Override hours per alert for sociable hours (default: 0.5).
+- `--unsociable-hours <FLOAT>`: Override hours per alert for unsociable hours (default: 1.0).
+- `--hours-per-alert <FLOAT>`: Flat override for all alerts (bypasses sociable/unsociable rates).
 - `--project-id <INT>`: Override Harvest Project ID.
 - `--task-id <INT>`: Override Harvest Task ID.
 - `-y`, `--apply`: Automatically submit pending entries without interactive prompt.
@@ -151,14 +157,14 @@ autoharvest sync --shift --hours-per-alert 0.5 --apply
 
 1. **PagerDuty On-Call Schedule Verification**: Queries `GET /oncalls` to retrieve all scheduled on-call shifts for you during the requested timeframe. Any alerts you acknowledged during normal working hours or weeks off are automatically ignored.
 2. **PagerDuty Log Entries**: Queries `GET /log_entries?is_overview=true` in 1-day chunks, filtering for entries where `type == "acknowledge_log_entry"` and `agent.id == YOUR_USER_ID`.
-3. **1-Hour Windowing**:
-   - The first alert during an on-call shift initiates a 1-hour bookable window (1.0 hour).
-   - Any subsequent alerts that happen within that 1-hour window are ignored (0.0 hours).
-   - The next bookable hour starts with the next alert that occurs after the end of the previous bookable hour.
+3. **Sociable vs. Unsociable Windowing**:
+   - **Sociable Hours**: Weekends (08:30 to 00:00) & Weekdays (17:30 to 00:00). Initiates a **0.5-hour bookable window** (0.50 hours). Alerts within the 30-minute window are ignored.
+   - **Unsociable Hours**: All other times / overnight. Initiates a **1.0-hour bookable window** (1.00 hour). Alerts within the 60-minute window are ignored.
+   - The next bookable time starts with the next alert that occurs after the active window expires.
 4. **Harvest Pre-Check**: Queries `GET /v2/time_entries` for the same date window. It checks for incident matches via `external_reference.id` and note prefix (`PG#<IncidentNo.>`).
 5. **Time Entry Creation**: For any unlogged bookable alert, creates an entry in Harvest via `POST /v2/time_entries` with:
    - `spent_date`: Date the alert occurred (in your local timezone)
-   - `hours`: 1.0 hour
+   - `hours`: 0.5 or 1.0 hours (based on sociable vs unsociable hours)
    - `notes`: `PG#<IncidentNo.> - <Impacted Service> - <Summary>` (e.g. `PG#267540 - Webservers - SSL Certificate for www.sohonet.com due to expire soon`)
    - `external_reference`: `{ id: "PT4KHLK", permalink: "..." }`
 

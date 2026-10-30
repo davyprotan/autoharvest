@@ -412,3 +412,227 @@ def test_execute_sync_plan():
     )
     assert item.status == SyncStatus.CREATED
     assert item.harvest_entry_id == 999
+
+
+def test_is_sociable_hours_weekends_and_weekdays():
+    """
+    Test Sociable Hours definition:
+    - Sociable hours: 08:30 to 00:00 – Weekends & 17:30 to 00:00 Weekdays
+    - Unsociable hours: All other times (00:00 to 08:30 weekends, 00:00 to 17:30 weekdays)
+    """
+    from autoharvest.sync import is_sociable_hours
+
+    tz = ZoneInfo("UTC")
+
+    # 1. Weekend: Saturday 2026-10-17
+    # 00:00 -> Unsociable
+    assert is_sociable_hours(datetime(2026, 10, 17, 0, 0, tzinfo=tz), tz) is False
+    # 08:29 -> Unsociable
+    assert is_sociable_hours(datetime(2026, 10, 17, 8, 29, 59, tzinfo=tz), tz) is False
+    # 08:30 -> Sociable
+    assert is_sociable_hours(datetime(2026, 10, 17, 8, 30, 0, tzinfo=tz), tz) is True
+    # 14:00 -> Sociable
+    assert is_sociable_hours(datetime(2026, 10, 17, 14, 0, 0, tzinfo=tz), tz) is True
+    # 23:59 -> Sociable
+    assert is_sociable_hours(datetime(2026, 10, 17, 23, 59, 59, tzinfo=tz), tz) is True
+
+    # 2. Weekend: Sunday 2026-10-18
+    # 03:00 -> Unsociable
+    assert is_sociable_hours(datetime(2026, 10, 18, 3, 0, 0, tzinfo=tz), tz) is False
+    # 08:30 -> Sociable
+    assert is_sociable_hours(datetime(2026, 10, 18, 8, 30, 0, tzinfo=tz), tz) is True
+    # 20:15 -> Sociable
+    assert is_sociable_hours(datetime(2026, 10, 18, 20, 15, 0, tzinfo=tz), tz) is True
+
+    # 3. Weekday: Monday 2026-10-19
+    # 00:00 -> Unsociable
+    assert is_sociable_hours(datetime(2026, 10, 19, 0, 0, tzinfo=tz), tz) is False
+    # 04:30 (night shift) -> Unsociable
+    assert is_sociable_hours(datetime(2026, 10, 19, 4, 30, tzinfo=tz), tz) is False
+    # 17:29 -> Unsociable
+    assert is_sociable_hours(datetime(2026, 10, 19, 17, 29, 59, tzinfo=tz), tz) is False
+    # 17:30 -> Sociable
+    assert is_sociable_hours(datetime(2026, 10, 19, 17, 30, 0, tzinfo=tz), tz) is True
+    # 21:00 -> Sociable
+    assert is_sociable_hours(datetime(2026, 10, 19, 21, 0, 0, tzinfo=tz), tz) is True
+
+    # 4. Timezone conversion (e.g. Europe/London with BST offset +1h)
+    # 2026-08-15 (Saturday in BST): 07:30 UTC is 08:30 BST -> Sociable!
+    london_tz = ZoneInfo("Europe/London")
+    dt_bst = datetime(2026, 8, 15, 7, 30, tzinfo=ZoneInfo("UTC"))
+    assert is_sociable_hours(dt_bst, london_tz) is True
+
+
+def test_sociable_hours_booking_half_hour_chunks():
+    """
+    Test requirement:
+    - Hours within sociable hours at the weekend are booked in 0.5 hour chunks.
+    - Alerts within that 0.5 hour (30m) are ignored.
+    - Next alert after 30m starts the next window.
+    """
+    pd_mock = MagicMock()
+    harvest_mock = MagicMock()
+    harvest_mock.get_time_entries.return_value = []
+
+    tz = ZoneInfo("Europe/London")
+    # Saturday 2026-10-17 10:00 BST (Sociable)
+    base = datetime(2026, 10, 17, 10, 0, tzinfo=tz)
+
+    # 3 alerts:
+    # Alert 1: 10:00 (Sociable) -> 0.5h chunk, window ends at 10:30
+    # Alert 2: 10:15 -> Ignored (<30m since Alert 1)
+    # Alert 3: 10:35 -> Bookable (after 10:30, starts new 0.5h window)
+    incidents = [
+        AcknowledgedIncident(
+            incident_id="PD_SAT_1",
+            incident_number=501,
+            title="Database slow query",
+            service_name="Database",
+            urgency="high",
+            html_url="https://pd/501",
+            acknowledged_at=base,
+            spent_date=base.strftime("%Y-%m-%d"),
+            log_entry_id="L1",
+            incident_created_at=base,
+        ),
+        AcknowledgedIncident(
+            incident_id="PD_SAT_2",
+            incident_number=502,
+            title="Database connection pool",
+            service_name="Database",
+            urgency="high",
+            html_url="https://pd/502",
+            acknowledged_at=base.replace(minute=15),
+            spent_date=base.strftime("%Y-%m-%d"),
+            log_entry_id="L2",
+            incident_created_at=base.replace(minute=15),
+        ),
+        AcknowledgedIncident(
+            incident_id="PD_SAT_3",
+            incident_number=503,
+            title="High disk usage",
+            service_name="Storage",
+            urgency="high",
+            html_url="https://pd/503",
+            acknowledged_at=base.replace(minute=35),
+            spent_date=base.strftime("%Y-%m-%d"),
+            log_entry_id="L3",
+            incident_created_at=base.replace(minute=35),
+        ),
+    ]
+    pd_mock.get_acknowledged_incidents.return_value = incidents
+
+    plan = create_sync_plan(
+        pd_client=pd_mock,
+        harvest_client=harvest_mock,
+        user_id="U1",
+        since=base,
+        until=base.replace(hour=12),
+        project_id=10,
+        task_id=20,
+        tz=tz,
+        filter_oncall_shifts=False,
+    )
+
+    assert len(plan.items) == 3
+
+    # Alert 1: 0.5 hours
+    assert plan.items[0].incident.incident_number == 501
+    assert plan.items[0].status == SyncStatus.PENDING_CREATION
+    assert plan.items[0].hours == 0.5
+    assert plan.items[0].is_sociable is True
+    assert plan.items[0].window_hours == 0.5
+
+    # Alert 2: Ignored
+    assert plan.items[1].incident.incident_number == 502
+    assert plan.items[1].status == SyncStatus.IGNORED_WINDOW
+    assert plan.items[1].hours == 0.0
+    assert plan.items[1].ignored_by_incident.incident_number == 501
+    assert plan.items[1].window_hours == 0.5
+
+    # Alert 3: 0.5 hours
+    assert plan.items[2].incident.incident_number == 503
+    assert plan.items[2].status == SyncStatus.PENDING_CREATION
+    assert plan.items[2].hours == 0.5
+    assert plan.items[2].is_sociable is True
+
+    # Total pending hours = 0.5 + 0.5 = 1.0 hour
+    assert plan.total_pending_hours == 1.0
+
+
+def test_sociable_vs_unsociable_windowing_and_boundary():
+    """
+    Test alert sequence crossing unsociable/sociable boundary:
+    - 08:10 Sat (Unsociable -> 1.0 hour chunk, window until 09:10)
+    - 08:50 Sat (Inside window of 08:10 alert -> Ignored)
+    - 09:15 Sat (After window, Sociable -> 0.5 hour chunk, window until 09:45)
+    - 09:30 Sat (Inside window of 09:15 alert -> Ignored)
+    """
+    pd_mock = MagicMock()
+    harvest_mock = MagicMock()
+    harvest_mock.get_time_entries.return_value = []
+
+    tz = ZoneInfo("UTC")
+    sat_date = "2026-10-17"
+
+    t1 = datetime(2026, 10, 17, 8, 10, tzinfo=tz)  # Unsociable (<08:30)
+    t2 = datetime(2026, 10, 17, 8, 50, tzinfo=tz)  # Within 1h of t1
+    t3 = datetime(2026, 10, 17, 9, 15, tzinfo=tz)  # Sociable (>09:10 and >=08:30)
+    t4 = datetime(2026, 10, 17, 9, 30, tzinfo=tz)  # Within 30m of t3
+
+    incidents = [
+        AcknowledgedIncident(
+            incident_id=f"INC_{i}",
+            incident_number=600 + i,
+            title=f"Incident {i}",
+            service_name="Core",
+            urgency="high",
+            html_url=f"https://pd/{i}",
+            acknowledged_at=t,
+            spent_date=sat_date,
+            log_entry_id=f"L{i}",
+            incident_created_at=t,
+        )
+        for i, t in enumerate([t1, t2, t3, t4], start=1)
+    ]
+    pd_mock.get_acknowledged_incidents.return_value = incidents
+
+    plan = create_sync_plan(
+        pd_client=pd_mock,
+        harvest_client=harvest_mock,
+        user_id="U1",
+        since=datetime(2026, 10, 17, 8, 0, tzinfo=tz),
+        until=datetime(2026, 10, 17, 12, 0, tzinfo=tz),
+        project_id=1,
+        task_id=2,
+        tz=tz,
+        filter_oncall_shifts=False,
+    )
+
+    assert len(plan.items) == 4
+
+    # 1. 08:10 -> Unsociable: 1.0 hour
+    assert plan.items[0].incident.incident_number == 601
+    assert plan.items[0].status == SyncStatus.PENDING_CREATION
+    assert plan.items[0].hours == 1.0
+    assert plan.items[0].is_sociable is False
+    assert plan.items[0].window_hours == 1.0
+
+    # 2. 08:50 -> Ignored by 601
+    assert plan.items[1].incident.incident_number == 602
+    assert plan.items[1].status == SyncStatus.IGNORED_WINDOW
+    assert plan.items[1].ignored_by_incident.incident_number == 601
+
+    # 3. 09:15 -> Sociable: 0.5 hours
+    assert plan.items[2].incident.incident_number == 603
+    assert plan.items[2].status == SyncStatus.PENDING_CREATION
+    assert plan.items[2].hours == 0.5
+    assert plan.items[2].is_sociable is True
+    assert plan.items[2].window_hours == 0.5
+
+    # 4. 09:30 -> Ignored by 603
+    assert plan.items[3].incident.incident_number == 604
+    assert plan.items[3].status == SyncStatus.IGNORED_WINDOW
+    assert plan.items[3].ignored_by_incident.incident_number == 603
+
+    assert plan.total_pending_hours == 1.5

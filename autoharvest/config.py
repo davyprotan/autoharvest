@@ -20,6 +20,8 @@ class Config:
     harvest_task_id: Optional[int] = None
     harvest_user_agent: Optional[str] = None
     hours_per_alert: float = 1.0
+    sociable_hours_per_alert: float = 0.5
+    unsociable_hours_per_alert: float = 1.0
     timezone: str = "UTC"
 
     def get_tz(self) -> ZoneInfo:
@@ -48,8 +50,8 @@ class Config:
             errors.append("HARVEST_PROJECT_ID is not set. Run `autoharvest setup` or set it in .env.")
         if not self.harvest_task_id:
             errors.append("HARVEST_TASK_ID is not set. Run `autoharvest setup` or set it in .env.")
-        if self.hours_per_alert <= 0:
-            errors.append("HOURS_PER_ALERT must be a positive number.")
+        if self.sociable_hours_per_alert <= 0 or self.unsociable_hours_per_alert <= 0:
+            errors.append("Alert booking hours must be positive numbers.")
         return errors
 
 
@@ -102,6 +104,10 @@ def load_config(env_path: Optional[str | Path] = None) -> Config:
 
     tz = os.getenv("TIMEZONE", "").strip() or get_default_timezone()
 
+    hours_per_alert = parse_float("HOURS_PER_ALERT", 1.0)
+    sociable_hours = parse_float("SOCIABLE_HOURS_PER_ALERT", 0.5)
+    unsociable_hours = parse_float("UNSOCIABLE_HOURS_PER_ALERT", hours_per_alert)
+
     return Config(
         pagerduty_api_token=os.getenv("PAGERDUTY_API_TOKEN", "").strip(),
         pagerduty_user_id=os.getenv("PAGERDUTY_USER_ID", "").strip() or None,
@@ -111,7 +117,9 @@ def load_config(env_path: Optional[str | Path] = None) -> Config:
         harvest_project_id=parse_int("HARVEST_PROJECT_ID"),
         harvest_task_id=parse_int("HARVEST_TASK_ID"),
         harvest_user_agent=os.getenv("HARVEST_USER_AGENT", "").strip() or None,
-        hours_per_alert=parse_float("HOURS_PER_ALERT", 1.0),
+        hours_per_alert=hours_per_alert,
+        sociable_hours_per_alert=sociable_hours,
+        unsociable_hours_per_alert=unsociable_hours,
         timezone=tz,
     )
 

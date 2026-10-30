@@ -262,9 +262,13 @@ def setup_cmd(ctx: click.Context) -> None:
     )
 
     # 4. Hours per alert
-    hours_per_alert = FloatPrompt.ask(
-        "\nEnter [bold]hours to log per acknowledged alert[/]",
-        default=cfg.hours_per_alert or 1.0,
+    sociable_hours = FloatPrompt.ask(
+        "\nEnter [bold]hours to log for sociable alerts[/] (weekends 08:30-00:00, weekdays 17:30-00:00)",
+        default=cfg.sociable_hours_per_alert or 0.5,
+    )
+    unsociable_hours = FloatPrompt.ask(
+        "Enter [bold]hours to log for unsociable alerts[/] (all other times / overnight)",
+        default=cfg.unsociable_hours_per_alert or 1.0,
     )
 
     # 5. Timezone
@@ -280,7 +284,9 @@ def setup_cmd(ctx: click.Context) -> None:
         "HARVEST_PROJECT_ID": chosen_proj_id,
         "HARVEST_TASK_ID": chosen_task_id,
         "HARVEST_USER_AGENT": f"autoharvest ({h_user.email})",
-        "HOURS_PER_ALERT": str(hours_per_alert),
+        "SOCIABLE_HOURS_PER_ALERT": str(sociable_hours),
+        "UNSOCIABLE_HOURS_PER_ALERT": str(unsociable_hours),
+        "HOURS_PER_ALERT": str(unsociable_hours),
         "TIMEZONE": chosen_tz,
     }
 
@@ -294,7 +300,9 @@ def setup_cmd(ctx: click.Context) -> None:
 @click.option("--until", default=None, help="End time/date (ISO 8601 or YYYY-MM-DD).")
 @click.option("--days", default=7, show_default=True, help="Days to look back (used if --since is omitted).")
 @click.option("--shift", is_flag=True, default=False, help="Auto-detect most recent on-call shift window.")
-@click.option("--hours-per-alert", type=float, default=None, help="Override hours to log per alert.")
+@click.option("--hours-per-alert", type=float, default=None, help="Flat override for all alerts (bypasses sociable/unsociable rates).")
+@click.option("--sociable-hours", type=float, default=None, help="Hours to log for sociable alerts (default: 0.5).")
+@click.option("--unsociable-hours", type=float, default=None, help="Hours to log for unsociable alerts (default: 1.0).")
 @click.option("--project-id", type=int, default=None, help="Override Harvest Project ID.")
 @click.option("--task-id", type=int, default=None, help="Override Harvest Task ID.")
 @click.option("--apply", "-y", "apply_changes", is_flag=True, default=False, help="Submit changes to Harvest directly.")
@@ -309,6 +317,8 @@ def sync_cmd(
     days: int,
     shift: bool,
     hours_per_alert: Optional[float],
+    sociable_hours: Optional[float],
+    unsociable_hours: Optional[float],
     project_id: Optional[int],
     task_id: Optional[int],
     apply_changes: bool,
@@ -323,7 +333,11 @@ def sync_cmd(
     # Overrides from CLI flags
     effective_project_id = project_id or cfg.harvest_project_id
     effective_task_id = task_id or cfg.harvest_task_id
-    effective_hours = hours_per_alert if hours_per_alert is not None else cfg.hours_per_alert
+    effective_sociable = sociable_hours if sociable_hours is not None else cfg.sociable_hours_per_alert
+    effective_unsociable = unsociable_hours if unsociable_hours is not None else cfg.unsociable_hours_per_alert
+    if hours_per_alert is not None:
+        effective_sociable = hours_per_alert
+        effective_unsociable = hours_per_alert
 
     # Validate prerequisites
     errors = cfg.validate_pagerduty() + cfg.validate_harvest()
@@ -399,7 +413,9 @@ def sync_cmd(
                 until=end_dt,
                 project_id=effective_project_id,
                 task_id=effective_task_id,
-                hours_per_alert=effective_hours,
+                hours_per_alert=hours_per_alert,
+                sociable_hours=effective_sociable,
+                unsociable_hours=effective_unsociable,
                 tz=tz,
                 filter_oncall_shifts=not all_alerts,
                 include_non_oncall=show_non_oncall,

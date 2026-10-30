@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from typing import Callable, Optional
 from zoneinfo import ZoneInfo
 
@@ -54,6 +54,27 @@ def is_incident_already_logged(incident: AcknowledgedIncident, harvest_entries: 
             return entry
 
     return None
+
+
+def is_sociable_hours(dt: datetime, tz: ZoneInfo) -> bool:
+    """
+    Check if a datetime falls within sociable on-call hours.
+
+    Policy:
+    - Sociable hours: 08:30 to 00:00 (midnight) – Weekends & 17:30 to 00:00 (midnight) Weekdays
+    - Unsociable hours: All other times (e.g. overnight 00:00 to 08:30 on weekends,
+      00:00 to 17:30 on weekdays).
+    """
+    local_dt = dt.astimezone(tz)
+    local_time = local_dt.time()
+    weekday = local_dt.weekday()  # Monday=0 ... Sunday=6
+
+    if weekday >= 5:
+        # Weekend (Saturday & Sunday)
+        return local_time >= time(8, 30)
+    else:
+        # Weekday (Monday to Friday)
+        return local_time >= time(17, 30)
 
 
 def is_alert_during_shift(
@@ -112,9 +133,11 @@ def create_sync_plan(
     until: datetime,
     project_id: int,
     task_id: int,
-    hours_per_alert: float = 1.0,
+    hours_per_alert: Optional[float] = None,
+    sociable_hours: float = 0.5,
+    unsociable_hours: float = 1.0,
     tz: ZoneInfo = ZoneInfo("UTC"),
-    window_hours: float = 1.0,
+    window_hours: Optional[float] = None,
     chunk_days: float = 1.0,
     filter_oncall_shifts: bool = True,
     include_non_oncall: bool = False,
@@ -124,11 +147,20 @@ def create_sync_plan(
     Fetch acknowledged alerts and existing Harvest entries, and construct a SyncPlan.
     Applies the rules:
     - Filters alerts to only those that occurred during scheduled PagerDuty on-call shifts.
-    - Each on-call alert creates 1 hour of bookable time.
-    - Any alerts that happen within that hour are ignored.
-    - The next bookable hour starts with the next alert that happens after the end of the previous window.
+    - Sociable hours (Weekends 08:30-00:00, Weekdays 17:30-00:00) create 0.5 hours of bookable time.
+    - Unsociable hours (all other times, e.g. overnight 00:00-08:30 weekends, 00:00-17:30 weekdays) create 1.0 hour.
+    - Any alerts that happen within that active window (0.5h or 1.0h) are ignored.
+    - The next bookable hour/half-hour starts with the next alert after the end of the previous window.
     """
-    fetch_since = since - timedelta(hours=window_hours)
+    if hours_per_alert is not None:
+        eff_sociable = hours_per_alert
+        eff_unsociable = hours_per_alert
+    else:
+        eff_sociable = sociable_hours
+        eff_unsociable = unsociable_hours
+
+    max_lookback_hours = max(eff_sociable, eff_unsociable, window_hours or 1.0)
+    fetch_since = since - timedelta(hours=max_lookback_hours)
 
     # 1. Fetch scheduled on-call shifts for this user in the window
     shifts = pd_client.get_oncall_shifts(user_id=user_id, since=fetch_since, until=until)
@@ -149,15 +181,17 @@ def create_sync_plan(
     to_date = until.astimezone(tz).strftime("%Y-%m-%d")
     existing_entries = harvest_client.get_time_entries(from_date=from_date, to_date=to_date)
 
-    # 4. Apply on-call shift filtering and 1-hour windowing
+    # 4. Apply on-call shift filtering and windowing
     items: list[SyncItem] = []
     current_window_end: Optional[datetime] = None
     window_source: Optional[AcknowledgedIncident] = None
+    current_window_duration: float = 1.0
     non_oncall_count = 0
 
     for inc in all_incidents:
         alert_time = inc.event_time
         in_requested_range = alert_time >= since
+        is_soc = is_sociable_hours(alert_time, tz)
 
         # Filter: was the user scheduled on-call when this alert occurred?
         if filter_oncall_shifts:
@@ -178,15 +212,21 @@ def create_sync_plan(
                             hours=0.0,
                             status=SyncStatus.IGNORED_NOT_ONCALL,
                             shift=None,
+                            is_sociable=is_soc,
+                            window_hours=0.0,
                         )
                     )
             continue
 
         # Alert occurred during an on-call shift!
+        expected_hours = eff_sociable if is_soc else eff_unsociable
+        win_dur = window_hours if window_hours is not None else expected_hours
+
         if current_window_end is None or alert_time >= current_window_end:
             # Starts a new bookable window!
-            current_window_end = alert_time + timedelta(hours=window_hours)
+            current_window_end = alert_time + timedelta(hours=win_dur)
             window_source = inc
+            current_window_duration = win_dur
 
             if in_requested_range:
                 existing = is_incident_already_logged(inc, existing_entries)
@@ -198,15 +238,19 @@ def create_sync_plan(
                             status=SyncStatus.ALREADY_LOGGED,
                             harvest_entry_id=existing.id,
                             shift=matching_shift,
+                            is_sociable=is_soc,
+                            window_hours=current_window_duration,
                         )
                     )
                 else:
                     items.append(
                         SyncItem(
                             incident=inc,
-                            hours=hours_per_alert,
+                            hours=expected_hours,
                             status=SyncStatus.PENDING_CREATION,
                             shift=matching_shift,
+                            is_sociable=is_soc,
+                            window_hours=current_window_duration,
                         )
                     )
         else:
@@ -219,6 +263,8 @@ def create_sync_plan(
                         status=SyncStatus.IGNORED_WINDOW,
                         ignored_by_incident=window_source,
                         shift=matching_shift,
+                        is_sociable=is_soc,
+                        window_hours=current_window_duration,
                     )
                 )
 
@@ -228,7 +274,9 @@ def create_sync_plan(
         items=items,
         project_id=project_id,
         task_id=task_id,
-        hours_per_alert=hours_per_alert,
+        hours_per_alert=hours_per_alert if hours_per_alert is not None else eff_unsociable,
+        sociable_hours=eff_sociable,
+        unsociable_hours=eff_unsociable,
         shifts=shifts,
         non_oncall_ignored_count=non_oncall_count,
     )

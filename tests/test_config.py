@@ -38,7 +38,9 @@ def test_save_and_load_config(tmp_path: Path):
         "HARVEST_ACCOUNT_ID": "987654",
         "HARVEST_PROJECT_ID": "111",
         "HARVEST_TASK_ID": "222",
-        "HOURS_PER_ALERT": "0.5",
+        "HOURS_PER_ALERT": "1.0",
+        "SOCIABLE_HOURS_PER_ALERT": "0.5",
+        "UNSOCIABLE_HOURS_PER_ALERT": "1.0",
         "TIMEZONE": "Europe/London",
     }
     saved_path = save_config_to_env(updates, target_path=env_file)
@@ -50,6 +52,8 @@ def test_save_and_load_config(tmp_path: Path):
     assert cfg.harvest_account_id == "987654"
     assert cfg.harvest_project_id == 111
     assert cfg.harvest_task_id == 222
-    assert cfg.hours_per_alert == 0.5
+    assert cfg.hours_per_alert == 1.0
+    assert cfg.sociable_hours_per_alert == 0.5
+    assert cfg.unsociable_hours_per_alert == 1.0
     assert cfg.timezone == "Europe/London"
     assert cfg.get_tz() == ZoneInfo("Europe/London")
