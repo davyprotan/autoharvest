@@ -473,7 +473,7 @@ def sync_cmd(
 
     # Execute changes
     console.print("\n[bold cyan]Submitting time entries to Harvest...[/]")
-    results = execute_sync_plan(harvest_client, plan)
+    results = execute_sync_plan(harvest_client, plan, tz=tz)
 
     # Re-display results table with created/failed statuses
     display_sync_plan_table(plan, is_dry_run=False)

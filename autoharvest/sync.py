@@ -285,20 +285,33 @@ def create_sync_plan(
 def execute_sync_plan(
     harvest_client: HarvestClient,
     plan: SyncPlan,
+    tz: Optional[ZoneInfo] = None,
 ) -> list[SyncItem]:
-    """Execute creation of pending Harvest time entries."""
+    """Execute creation of pending Harvest time entries as completed segments."""
+    effective_tz = tz or plan.since.tzinfo or ZoneInfo("UTC")
+
     for item in plan.pending_items:
         ext_ref = {
             "id": item.incident.incident_id,
             "permalink": item.incident.html_url,
         }
+
+        # Calculate start and end times in user's target timezone
+        start_dt = item.incident.event_time.astimezone(effective_tz)
+        end_dt = start_dt + timedelta(hours=item.hours)
+        started_time_str = harvest_client.format_time_for_harvest(start_dt)
+        ended_time_str = harvest_client.format_time_for_harvest(end_dt)
+        spent_date = start_dt.strftime("%Y-%m-%d")
+
         try:
             entry = harvest_client.create_time_entry(
                 project_id=plan.project_id,
                 task_id=plan.task_id,
-                spent_date=item.incident.spent_date,
+                spent_date=spent_date,
                 hours=item.hours,
                 notes=item.formatted_note,
+                started_time=started_time_str,
+                ended_time=ended_time_str,
                 external_reference=ext_ref,
             )
             item.status = SyncStatus.CREATED

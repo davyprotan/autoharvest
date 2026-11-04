@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any, Optional
 import requests
 
@@ -29,6 +30,7 @@ class HarvestClient:
         self.base_url = base_url.rstrip("/")
         self.user_agent = user_agent or "autoharvest (time-tracker)"
         self.session = session or requests.Session()
+        self._company_config: Optional[dict[str, Any]] = None
         self.session.headers.update({
             "Authorization": f"Bearer {self.access_token}",
             "Harvest-Account-Id": self.account_id,
@@ -86,6 +88,43 @@ class HarvestClient:
             last_name=data.get("last_name", ""),
             email=data.get("email", ""),
         )
+
+    def get_company(self) -> dict[str, Any]:
+        """Fetch company configuration from /company."""
+        return self._request("GET", "/company")
+
+    def get_company_config(self) -> dict[str, Any]:
+        """Get cached company configuration."""
+        if self._company_config is None:
+            try:
+                self._company_config = self.get_company()
+            except Exception:
+                self._company_config = {}
+        return self._company_config
+
+    @property
+    def wants_timestamp_timers(self) -> bool:
+        """Whether this Harvest account uses start/end timestamps rather than raw decimal hours."""
+        return bool(self.get_company_config().get("wants_timestamp_timers", False))
+
+    @property
+    def clock(self) -> str:
+        """Clock format: '24h' or '12h'."""
+        return str(self.get_company_config().get("clock", "24h"))
+
+    def format_time_for_harvest(self, dt: datetime) -> str:
+        """Format a datetime into a time string expected by Harvest (12h or 24h)."""
+        if self.clock == "24h":
+            return dt.strftime("%H:%M")
+        else:
+            hour = dt.strftime("%I").lstrip("0") or "12"
+            minute = dt.strftime("%M")
+            am_pm = dt.strftime("%p").lower()
+            return f"{hour}:{minute}{am_pm}"
+
+    def stop_time_entry(self, entry_id: int) -> dict[str, Any]:
+        """Stop an active/running timer."""
+        return self._request("PATCH", f"/time_entries/{entry_id}/stop")
 
     def get_project_assignments(self) -> list[HarvestProject]:
         """Fetch all projects and tasks assigned to the current user."""
@@ -159,6 +198,9 @@ class HarvestClient:
                         task_id=item.get("task", {}).get("id", 0),
                         task_name=item.get("task", {}).get("name"),
                         external_reference_id=ext_ref.get("id"),
+                        started_time=item.get("started_time"),
+                        ended_time=item.get("ended_time"),
+                        is_running=bool(item.get("is_running", False)),
                     )
                 )
 
@@ -176,6 +218,8 @@ class HarvestClient:
         spent_date: str,
         hours: float,
         notes: str,
+        started_time: Optional[str] = None,
+        ended_time: Optional[str] = None,
         external_reference: Optional[dict[str, str]] = None,
     ) -> HarvestTimeEntry:
         """Create a new time entry in Harvest."""
@@ -183,13 +227,37 @@ class HarvestClient:
             "project_id": project_id,
             "task_id": task_id,
             "spent_date": spent_date,
-            "hours": round(hours, 2),
             "notes": notes,
         }
+
+        # If timestamp timers are enabled and start/end times are provided,
+        # we must provide both started_time and ended_time so Harvest logs
+        # a completed segment rather than starting an active live timer.
+        if self.wants_timestamp_timers and started_time and ended_time:
+            payload["started_time"] = started_time
+            payload["ended_time"] = ended_time
+            payload["hours"] = round(hours, 2)
+        else:
+            payload["hours"] = round(hours, 2)
+            if started_time:
+                payload["started_time"] = started_time
+            if ended_time:
+                payload["ended_time"] = ended_time
+
         if external_reference:
             payload["external_reference"] = external_reference
 
         data = self._request("POST", "/time_entries", json_data=payload)
+
+        # Safety check: if Harvest somehow created the entry as a running timer,
+        # immediately stop it so it is recorded as a completed segment.
+        entry_id = data.get("id")
+        if data.get("is_running") and entry_id:
+            try:
+                data = self.stop_time_entry(entry_id)
+            except Exception:
+                pass
+
         ext_ref = data.get("external_reference") or {}
 
         return HarvestTimeEntry(
@@ -202,4 +270,7 @@ class HarvestClient:
             task_id=data.get("task", {}).get("id", task_id),
             task_name=data.get("task", {}).get("name"),
             external_reference_id=ext_ref.get("id"),
+            started_time=data.get("started_time", started_time),
+            ended_time=data.get("ended_time", ended_time),
+            is_running=bool(data.get("is_running", False)),
         )

@@ -88,6 +88,9 @@ class HarvestTimeEntry:
     project_name: Optional[str] = None
     task_name: Optional[str] = None
     external_reference_id: Optional[str] = None
+    started_time: Optional[str] = None
+    ended_time: Optional[str] = None
+    is_running: bool = False
 
 
 @dataclass

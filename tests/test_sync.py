@@ -385,12 +385,15 @@ def test_execute_sync_plan():
         notes="PG#2 - Web - Alert 2",
         project_id=50,
         task_id=60,
+        started_time="10:00",
+        ended_time="11:00",
     )
     harvest_mock.create_time_entry.return_value = created_entry
+    harvest_mock.format_time_for_harvest.side_effect = lambda dt: dt.strftime("%H:%M")
 
     plan = SyncPlan(
-        since=datetime.now(timezone.utc),
-        until=datetime.now(timezone.utc),
+        since=datetime(2026, 10, 13, 0, 0, tzinfo=timezone.utc),
+        until=datetime(2026, 10, 13, 23, 59, tzinfo=timezone.utc),
         items=[],
         project_id=50,
         task_id=60,
@@ -408,6 +411,8 @@ def test_execute_sync_plan():
         spent_date="2026-10-13",
         hours=1.0,
         notes="PG#2 - Web - Alert 2",
+        started_time="10:00",
+        ended_time="11:00",
         external_reference={"id": "PD2", "permalink": "https://pd/2"},
     )
     assert item.status == SyncStatus.CREATED
