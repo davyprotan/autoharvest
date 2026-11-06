@@ -65,3 +65,45 @@ def test_cli_list_projects(mock_harvest_cls, tmp_path):
     assert result.exit_code == 0
     assert "SRE Operations" in result.output
     assert "On-Call Support" in result.output
+
+
+@patch("autoharvest.cli.HarvestClient")
+def test_cli_overtime(mock_harvest_cls, tmp_path: Path):
+    from autoharvest.models import HarvestTimeEntry
+
+    mock_harvest = MagicMock()
+    mock_harvest.get_time_entries.return_value = [
+        HarvestTimeEntry(
+            id=101,
+            spent_date="2026-10-15",
+            hours=2.0,
+            notes="PG#101 - Alert",
+            project_id=1,
+            project_name="UK Support",
+            task_id=10,
+            task_name="1st On call - Active",
+        ),
+        HarvestTimeEntry(
+            id=102,
+            spent_date="2026-10-16",
+            hours=15.0,
+            notes="",
+            project_id=2,
+            project_name="xOn Call InActive",
+            task_id=20,
+            task_name="1st On Call - Inactive",
+        ),
+    ]
+    mock_harvest_cls.return_value = mock_harvest
+
+    runner = CliRunner()
+    env_file = tmp_path / ".env"
+    env_file.write_text("PAGERDUTY_API_TOKEN=tok\nHARVEST_ACCESS_TOKEN=tok\nHARVEST_ACCOUNT_ID=123\n")
+
+    result = runner.invoke(cli, ["--config", str(env_file), "overtime", "--month", "2026-10"])
+    assert result.exit_code == 0
+    assert "October 2026" in result.output
+    assert "1st On Call - Active" in result.output
+    assert "1st On Call - Inactive" in result.output
+    assert "17.00 hrs" in result.output
+    assert "£150.00" in result.output

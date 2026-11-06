@@ -129,6 +129,7 @@ autoharvest sync --shift --hours-per-alert 0.5 --apply
 | Command | Description |
 | :--- | :--- |
 | `autoharvest sync` | Scan acknowledged alerts and sync to Harvest. |
+| `autoharvest overtime` | Calculate earned overtime earnings and hours for a month or period. |
 | `autoharvest setup` | Interactive wizard to configure `.env`. |
 | `autoharvest test` | Test API connections and display authenticated users. |
 | `autoharvest list-projects` | List available Harvest projects and tasks with their IDs. |
@@ -150,6 +151,33 @@ autoharvest sync --shift --hours-per-alert 0.5 --apply
 - `-y`, `--apply`: Automatically submit pending entries without interactive prompt.
 - `--dry-run`: Preview changes only (never prompt to apply).
 - `--config <PATH>`: Use a custom `.env` file path.
+
+### `overtime` Options & Usage
+
+Calculate total earned overtime from your logged Harvest timesheets for a given month or custom date range:
+
+```bash
+# Calculate overtime for the current month so far (default)
+autoharvest overtime
+
+# Calculate overtime for last month
+autoharvest overtime --last-month
+
+# Calculate overtime for a specific month
+autoharvest overtime --month 2026-10
+autoharvest overtime --month October
+
+# Show itemized day-by-day table of all time entries
+autoharvest overtime --last-month --detailed
+
+# Custom date range
+autoharvest overtime --since 2026-09-01 --until 2026-09-30
+```
+
+#### Hourly Rates
+- **1st On Call - Active**: £30.00 / hr (override with `--rate-active <FLOAT>` or `RATE_ACTIVE` in `.env`)
+- **1st On Call - Inactive**: £6.00 / hr (override with `--rate-inactive <FLOAT>` or `RATE_INACTIVE` in `.env`)
+- **Out of hours configuration**: £30.00 / hr (override with `--rate-ooh <FLOAT>` or `RATE_OUT_OF_HOURS` in `.env`)
 
 ---
 

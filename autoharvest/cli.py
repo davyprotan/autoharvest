@@ -9,6 +9,7 @@ from rich.prompt import Confirm, FloatPrompt, Prompt
 from autoharvest.config import Config, get_default_timezone, load_config, save_config_to_env
 from autoharvest.display import (
     console,
+    display_overtime_report,
     display_projects_table,
     display_shifts_table,
     display_sync_plan_table,
@@ -16,6 +17,7 @@ from autoharvest.display import (
     print_banner,
 )
 from autoharvest.harvest import HarvestAPIError, HarvestClient
+from autoharvest.overtime import calculate_overtime_report, resolve_overtime_period
 from autoharvest.pagerduty import PagerDutyAPIError, PagerDutyClient
 from autoharvest.sync import (
     create_sync_plan,
@@ -485,6 +487,92 @@ def sync_cmd(
             console.print(f"  • Incident #{f.incident.incident_number}: {f.error_message}")
     else:
         console.print("\n[bold green]✓ Successfully logged all pending alerts to Harvest![/]")
+
+
+@cli.command("overtime")
+@click.option("--month", "-m", default=None, help="Month to calculate (e.g. '2026-10', '10', 'October').")
+@click.option("--last-month", is_flag=True, default=False, help="Calculate earned overtime for the previous calendar month.")
+@click.option("--this-month", is_flag=True, default=False, help="Calculate earned overtime for the current month so far.")
+@click.option("--since", default=None, help="Custom start date (YYYY-MM-DD).")
+@click.option("--until", default=None, help="Custom end date (YYYY-MM-DD).")
+@click.option("--detailed", "-d", is_flag=True, default=False, help="Show itemized list of all logged time entries.")
+@click.option("--rate-inactive", type=float, default=None, help="Override hourly rate for Inactive On-Call (default: £6.00).")
+@click.option("--rate-active", type=float, default=None, help="Override hourly rate for Active On-Call (default: £30.00).")
+@click.option("--rate-ooh", type=float, default=None, help="Override hourly rate for Out of Hours Configuration (default: £30.00).")
+@click.pass_context
+def overtime_cmd(
+    ctx: click.Context,
+    month: Optional[str],
+    last_month: bool,
+    this_month: bool,
+    since: Optional[str],
+    until: Optional[str],
+    detailed: bool,
+    rate_inactive: Optional[float],
+    rate_active: Optional[float],
+    rate_ooh: Optional[float],
+) -> None:
+    """Calculate earned overtime earnings and hours for a given month or period."""
+    print_banner()
+    cfg: Config = ctx.obj["config"]
+
+    errors = cfg.validate_harvest()
+    if errors:
+        for err in errors:
+            console.print(f"[bold red]• {err}[/]")
+        raise click.Abort()
+
+    tz = cfg.get_tz()
+    try:
+        from_date, to_date, period_label = resolve_overtime_period(
+            month=month,
+            last_month=last_month,
+            this_month=this_month,
+            since=since,
+            until=until,
+            tz=tz,
+        )
+    except ValueError as e:
+        console.print(f"[bold red]Date Error:[/] {e}")
+        raise click.Abort()
+
+    rates = {
+        "inactive": rate_inactive if rate_inactive is not None else cfg.rate_inactive,
+        "active": rate_active if rate_active is not None else cfg.rate_active,
+        "out_of_hours": rate_ooh if rate_ooh is not None else cfg.rate_out_of_hours,
+    }
+
+    harvest_client = HarvestClient(
+        access_token=cfg.harvest_access_token,
+        account_id=cfg.harvest_account_id,
+        user_agent=cfg.harvest_user_agent or "autoharvest",
+    )
+
+    console.print(
+        f"[dim]Fetching Harvest time entries for [bold cyan]{period_label}[/] "
+        f"({from_date} to {to_date})...[/dim]\n"
+    )
+
+    try:
+        report = calculate_overtime_report(
+            harvest_client=harvest_client,
+            start_date=from_date,
+            end_date=to_date,
+            period_label=period_label,
+            rates=rates,
+            currency_symbol=cfg.currency_symbol,
+        )
+    except HarvestAPIError as e:
+        console.print(f"[bold red]Harvest API Error:[/] {e}")
+        raise click.Abort()
+
+    if not report.items:
+        console.print(
+            f"[yellow]No overtime time entries found in Harvest for {period_label} ({from_date} to {to_date}).[/yellow]"
+        )
+        return
+
+    display_overtime_report(report, detailed=detailed)
 
 
 def main() -> None:

@@ -161,3 +161,38 @@ class SyncPlan:
     @property
     def total_logged_hours(self) -> float:
         return sum(item.hours for item in self.already_logged_items)
+
+
+@dataclass
+class OvertimeItem:
+    entry: HarvestTimeEntry
+    category: str
+    hourly_rate: float
+
+    @property
+    def total_earned(self) -> float:
+        return self.entry.hours * self.hourly_rate
+
+
+@dataclass
+class OvertimeCategorySummary:
+    category: str
+    project_name: str
+    task_name: str
+    task_id: int
+    hourly_rate: float
+    total_hours: float
+    total_earned: float
+    entry_count: int
+
+
+@dataclass
+class OvertimeReport:
+    start_date: str
+    end_date: str
+    period_label: str
+    items: list[OvertimeItem]
+    categories: list[OvertimeCategorySummary]
+    total_hours: float
+    total_earned: float
+    currency_symbol: str = "£"

@@ -9,6 +9,7 @@ from rich.text import Text
 from autoharvest.models import (
     HarvestProject,
     HarvestUser,
+    OvertimeReport,
     PagerDutyShift,
     PagerDutyUser,
     SyncPlan,
@@ -202,3 +203,93 @@ def display_sync_plan_table(plan: SyncPlan, is_dry_run: bool = True) -> None:
         title_text = "[bold green]SYNC RESULTS[/]"
 
     console.print(Panel(summary_text, title=title_text, border_style=border_style))
+
+
+def display_overtime_report(report: OvertimeReport, detailed: bool = False) -> None:
+    """Display a rich summary table and breakdown of earned overtime."""
+    cur = report.currency_symbol
+
+    # Category Breakdown Table
+    table = Table(
+        title=f"Earned Overtime Summary — {report.period_label} ({report.start_date} to {report.end_date})",
+        show_header=True,
+        header_style="bold white on dark_green",
+    )
+    table.add_column("Category / Task", style="bold")
+    table.add_column("Project", style="dim")
+    table.add_column("Entries", justify="right")
+    table.add_column("Hours", justify="right", style="cyan")
+    table.add_column("Hourly Rate", justify="right", style="yellow")
+    table.add_column("Total Earned", justify="right", style="bold green")
+
+    for cat in report.categories:
+        table.add_row(
+            cat.category,
+            cat.project_name,
+            str(cat.entry_count),
+            f"{cat.total_hours:.2f} hrs",
+            f"{cur}{cat.hourly_rate:.2f}/hr",
+            f"{cur}{cat.total_earned:,.2f}",
+        )
+
+    # Total row
+    table.add_section()
+    table.add_row(
+        "[bold]TOTAL OVERTIME[/]",
+        "-",
+        f"[bold]{len(report.items)}[/]",
+        f"[bold cyan]{report.total_hours:.2f} hrs[/]",
+        "-",
+        f"[bold green]{cur}{report.total_earned:,.2f}[/]",
+    )
+
+    console.print(table)
+
+    # Detailed table if requested
+    if detailed and report.items:
+        console.print("")
+        detail_table = Table(
+            title=f"Detailed Overtime Log Entries — {report.period_label}",
+            show_header=True,
+            header_style="bold white on navy_blue",
+        )
+        detail_table.add_column("Date", style="cyan")
+        detail_table.add_column("Category / Task", style="bold")
+        detail_table.add_column("Hours", justify="right", style="green")
+        detail_table.add_column("Rate", justify="right", style="yellow")
+        detail_table.add_column("Earned", justify="right", style="bold green")
+        detail_table.add_column("Notes / Summary", style="dim")
+
+        for item in report.items:
+            e = item.entry
+            note_str = (e.notes or "-").replace("\r\n", " ").replace("\n", " ").strip()
+            if len(note_str) > 70:
+                note_str = note_str[:67] + "..."
+            detail_table.add_row(
+                e.spent_date,
+                item.category,
+                f"{e.hours:.2f}h",
+                f"{cur}{item.hourly_rate:.2f}",
+                f"{cur}{item.total_earned:,.2f}",
+                note_str,
+            )
+
+        console.print(detail_table)
+
+    # Summary Panel
+    summary_lines = [
+        f"• [bold]Overtime Period:[/] {report.start_date} to {report.end_date} ([bold cyan]{report.period_label}[/])",
+        f"• [bold]Total Overtime Logged:[/] [bold cyan]{report.total_hours:.2f} hours[/] across {len(report.items)} entries",
+    ]
+    for cat in report.categories:
+        summary_lines.append(
+            f"  ├─ [bold]{cat.category}:[/] {cat.total_hours:.2f} hrs @ {cur}{cat.hourly_rate:.2f}/hr = [green]{cur}{cat.total_earned:,.2f}[/]"
+        )
+
+    summary_lines.extend([
+        "",
+        f"💰 [bold white on dark_green] TOTAL EARNED OVERTIME: {cur}{report.total_earned:,.2f} [/]",
+    ])
+
+    summary_text = "\n".join(summary_lines)
+    console.print(Panel(summary_text, title=f"[bold green]OVERTIME EARNINGS — {report.period_label}[/]", border_style="green"))

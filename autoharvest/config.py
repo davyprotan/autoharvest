@@ -23,6 +23,10 @@ class Config:
     sociable_hours_per_alert: float = 0.5
     unsociable_hours_per_alert: float = 1.0
     timezone: str = "UTC"
+    rate_inactive: float = 6.0
+    rate_active: float = 30.0
+    rate_out_of_hours: float = 30.0
+    currency_symbol: str = "£"
 
     def get_tz(self) -> ZoneInfo:
         try:
@@ -107,6 +111,10 @@ def load_config(env_path: Optional[str | Path] = None) -> Config:
     hours_per_alert = parse_float("HOURS_PER_ALERT", 1.0)
     sociable_hours = parse_float("SOCIABLE_HOURS_PER_ALERT", 0.5)
     unsociable_hours = parse_float("UNSOCIABLE_HOURS_PER_ALERT", hours_per_alert)
+    rate_inactive = parse_float("RATE_INACTIVE", 6.0)
+    rate_active = parse_float("RATE_ACTIVE", 30.0)
+    rate_out_of_hours = parse_float("RATE_OUT_OF_HOURS", 30.0)
+    currency_symbol = os.getenv("CURRENCY_SYMBOL", "£").strip() or "£"
 
     return Config(
         pagerduty_api_token=os.getenv("PAGERDUTY_API_TOKEN", "").strip(),
@@ -121,6 +129,10 @@ def load_config(env_path: Optional[str | Path] = None) -> Config:
         sociable_hours_per_alert=sociable_hours,
         unsociable_hours_per_alert=unsociable_hours,
         timezone=tz,
+        rate_inactive=rate_inactive,
+        rate_active=rate_active,
+        rate_out_of_hours=rate_out_of_hours,
+        currency_symbol=currency_symbol,
     )
 
 
