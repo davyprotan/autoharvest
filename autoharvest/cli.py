@@ -320,9 +320,6 @@ def setup_cmd(ctx: click.Context) -> None:
     console.print("\nYou are all set! Run [bold cyan]autoharvest sync[/] to preview your alerts.")
 
 
-cli.add_command(setup_cmd, name="configure")
-
-
 @cli.command("sync")
 @click.option("--since", default=None, help="Start time/date (ISO 8601 or YYYY-MM-DD).")
 @click.option("--until", default=None, help="End time/date (ISO 8601 or YYYY-MM-DD).")
@@ -616,7 +613,7 @@ def overtime_cmd(
             if effective_salary is None:
                 console.print(
                     "\n[bold yellow]Notice:[/] To view estimated take-home pay, specify your annual salary with "
-                    "[bold cyan]--salary <AMOUNT>[/] or save it via [bold cyan]autoharvest configure[/]."
+                    "[bold cyan]--salary <AMOUNT>[/] or save it via [bold cyan]autoharvest setup[/]."
                 )
             else:
                 estimated_pay = calculate_estimated_pay(
@@ -634,7 +631,7 @@ def overtime_cmd(
         if effective_salary is None:
             console.print(
                 "\n[bold yellow]Notice:[/] To view estimated take-home pay, specify your annual salary with "
-                "[bold cyan]--salary <AMOUNT>[/] or save it via [bold cyan]autoharvest configure[/]."
+                "[bold cyan]--salary <AMOUNT>[/] or save it via [bold cyan]autoharvest setup[/]."
             )
         else:
             estimated_pay = calculate_estimated_pay(
