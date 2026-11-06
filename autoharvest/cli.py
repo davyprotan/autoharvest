@@ -25,6 +25,7 @@ from autoharvest.sync import (
     create_sync_plan,
     execute_sync_plan,
     parse_datetime,
+    parse_end_datetime,
     resolve_shift_window,
 )
 
@@ -411,7 +412,7 @@ def sync_cmd(
             raise click.Abort()
     elif since:
         start_dt = parse_datetime(since, tz)
-        end_dt = parse_datetime(until, tz) if until else now
+        end_dt = parse_end_datetime(until, tz) if until else now
     else:
         start_dt = now - timedelta(days=days)
         end_dt = now
