@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Any, Callable, Optional
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 import requests
 
@@ -15,6 +16,10 @@ class PagerDutyAPIError(Exception):
         super().__init__(message)
         self.status_code = status_code
         self.response_text = response_text
+
+
+# PagerDuty rejects offsets above 10,000 on classic pagination endpoints.
+PAGERDUTY_MAX_OFFSET = 10000
 
 
 class PagerDutyClient:
@@ -152,11 +157,15 @@ class PagerDutyClient:
     ) -> list[AcknowledgedIncident]:
         """
         Fetch all incidents acknowledged by the user between `since` and `until`.
-        Chunks requests by `chunk_days` (default: 1 day) to avoid PagerDuty's
-        hard 10,000 offset limit (Offset must be less than 10001).
+        Uses the user-scoped /users/{id}/log_entries endpoint so only this user's
+        log entries are paged through (not the whole account's).
+        Chunks requests by `chunk_days` (default: 1 day) to stay under PagerDuty's
+        hard 10,000 offset limit, and raises rather than silently truncating if a
+        chunk still exceeds it.
         Deduplicates if the same incident was acknowledged multiple times.
         """
         limit = 100
+        log_entries_path = f"/users/{quote(user_id, safe='')}/log_entries"
         chunk_delta = timedelta(days=chunk_days)
         incidents_by_id: dict[str, AcknowledgedIncident] = {}
 
@@ -170,7 +179,13 @@ class PagerDutyClient:
             offset = 0
             more = True
 
-            while more and offset < 10000:
+            while more:
+                if offset >= PAGERDUTY_MAX_OFFSET:
+                    raise PagerDutyAPIError(
+                        f"More than {PAGERDUTY_MAX_OFFSET} PagerDuty log entries between "
+                        f"{current_start.isoformat()} and {current_end.isoformat()}; results would be "
+                        "incomplete. Retry with a smaller chunk size."
+                    )
                 params = {
                     "since": current_start.isoformat(),
                     "until": current_end.isoformat(),
@@ -180,7 +195,7 @@ class PagerDutyClient:
                     "offset": offset,
                 }
 
-                data = self._request("GET", "/log_entries", params=params)
+                data = self._request("GET", log_entries_path, params=params)
                 entries = data.get("log_entries", [])
                 more = data.get("more", False)
                 offset += limit

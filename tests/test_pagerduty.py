@@ -67,7 +67,7 @@ def test_get_acknowledged_incidents_filtering_and_dedup():
     with responses.RequestsMock() as rsps:
         rsps.add(
             responses.GET,
-            "https://api.pagerduty.com/log_entries",
+            "https://api.pagerduty.com/users/PUSER123/log_entries",
             json={
                 "log_entries": [
                     # 1. Valid ack by PUSER123
@@ -175,7 +175,7 @@ def test_get_acknowledged_incidents_chunking():
         # Day 1: 10-10 to 10-11
         rsps.add(
             responses.GET,
-            "https://api.pagerduty.com/log_entries",
+            "https://api.pagerduty.com/users/PUSER123/log_entries",
             json={
                 "log_entries": [
                     {
@@ -197,7 +197,7 @@ def test_get_acknowledged_incidents_chunking():
         # Day 2: 10-11 to 10-12
         rsps.add(
             responses.GET,
-            "https://api.pagerduty.com/log_entries",
+            "https://api.pagerduty.com/users/PUSER123/log_entries",
             json={
                 "log_entries": [
                     {
@@ -251,3 +251,34 @@ def test_pagerduty_auth_failure():
         except PagerDutyAPIError as e:
             assert e.status_code == 401
             assert "401 Unauthorized" in str(e)
+
+
+def test_get_acknowledged_incidents_raises_instead_of_truncating():
+    """If a chunk has more entries than PagerDuty's offset cap, fail loudly rather than drop alerts."""
+    import autoharvest.pagerduty as pd_module
+
+    client = PagerDutyClient(token="pd_test_tok")
+    since = datetime(2026, 10, 10, 0, 0, 0, tzinfo=timezone.utc)
+    until = datetime(2026, 10, 11, 0, 0, 0, tzinfo=timezone.utc)
+    full_page = {
+        "log_entries": [{"id": f"L{i}", "type": "notify_log_entry"} for i in range(100)],
+        "more": True,
+    }
+
+    original_cap = pd_module.PAGERDUTY_MAX_OFFSET
+    pd_module.PAGERDUTY_MAX_OFFSET = 200  # keep the test small
+    try:
+        with responses.RequestsMock() as rsps:
+            rsps.add(
+                responses.GET,
+                "https://api.pagerduty.com/users/PUSER123/log_entries",
+                json=full_page,
+                status=200,
+            )
+            try:
+                client.get_acknowledged_incidents(user_id="PUSER123", since=since, until=until)
+                assert False, "Should have raised PagerDutyAPIError"
+            except PagerDutyAPIError as e:
+                assert "smaller chunk" in str(e)
+    finally:
+        pd_module.PAGERDUTY_MAX_OFFSET = original_cap
