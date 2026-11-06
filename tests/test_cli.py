@@ -9,6 +9,8 @@ def test_cli_help():
     result = runner.invoke(cli, ["--help"])
     assert result.exit_code == 0
     assert "Sync PagerDuty acknowledged incidents" in result.output
+    assert "setup" in result.output
+    assert "configure" in result.output
 
 
 def test_cli_test_missing_config(tmp_path):

@@ -320,6 +320,9 @@ def setup_cmd(ctx: click.Context) -> None:
     console.print("\nYou are all set! Run [bold cyan]autoharvest sync[/] to preview your alerts.")
 
 
+cli.add_command(setup_cmd, name="configure")
+
+
 @cli.command("sync")
 @click.option("--since", default=None, help="Start time/date (ISO 8601 or YYYY-MM-DD).")
 @click.option("--until", default=None, help="End time/date (ISO 8601 or YYYY-MM-DD).")
