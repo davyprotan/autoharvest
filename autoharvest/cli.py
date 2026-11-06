@@ -490,9 +490,12 @@ def sync_cmd(
 
 
 @cli.command("overtime")
-@click.option("--month", "-m", default=None, help="Month to calculate (e.g. '2026-10', '10', 'October').")
-@click.option("--last-month", is_flag=True, default=False, help="Calculate earned overtime for the previous calendar month.")
-@click.option("--this-month", is_flag=True, default=False, help="Calculate earned overtime for the current month so far.")
+@click.option("--payday", "-p", default=None, help="Target payday month (e.g. 'November', '2026-11'). Pay period runs from 16th of previous month to 15th.")
+@click.option("--last-payday", is_flag=True, default=False, help="Calculate overtime for the previous payday cycle.")
+@click.option("--month", "-m", default=None, help="Target month (e.g. '2026-11', '11', 'November'). Defaults to payday cycle unless --calendar is passed.")
+@click.option("--last-month", is_flag=True, default=False, help="Calculate overtime for the previous period (payday cycle or calendar month).")
+@click.option("--this-month", is_flag=True, default=False, help="Calculate overtime for the current period to date.")
+@click.option("--calendar", "-c", is_flag=True, default=False, help="Use calendar month (1st to end) instead of payday cycle (16th to 15th).")
 @click.option("--since", default=None, help="Custom start date (YYYY-MM-DD).")
 @click.option("--until", default=None, help="Custom end date (YYYY-MM-DD).")
 @click.option("--detailed", "-d", is_flag=True, default=False, help="Show itemized list of all logged time entries.")
@@ -502,9 +505,12 @@ def sync_cmd(
 @click.pass_context
 def overtime_cmd(
     ctx: click.Context,
+    payday: Optional[str],
+    last_payday: bool,
     month: Optional[str],
     last_month: bool,
     this_month: bool,
+    calendar: bool,
     since: Optional[str],
     until: Optional[str],
     detailed: bool,
@@ -512,7 +518,7 @@ def overtime_cmd(
     rate_active: Optional[float],
     rate_ooh: Optional[float],
 ) -> None:
-    """Calculate earned overtime earnings and hours for a given month or period."""
+    """Calculate earned overtime earnings and hours for the next coming payday (or a specific period)."""
     print_banner()
     cfg: Config = ctx.obj["config"]
 
@@ -526,8 +532,11 @@ def overtime_cmd(
     try:
         from_date, to_date, period_label = resolve_overtime_period(
             month=month,
+            payday=payday,
+            last_payday=last_payday,
             last_month=last_month,
             this_month=this_month,
+            calendar_mode=calendar,
             since=since,
             until=until,
             tz=tz,

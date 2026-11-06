@@ -100,10 +100,26 @@ def test_cli_overtime(mock_harvest_cls, tmp_path: Path):
     env_file = tmp_path / ".env"
     env_file.write_text("PAGERDUTY_API_TOKEN=tok\nHARVEST_ACCESS_TOKEN=tok\nHARVEST_ACCOUNT_ID=123\n")
 
+    # Test with explicit --month (defaults to payday cycle)
     result = runner.invoke(cli, ["--config", str(env_file), "overtime", "--month", "2026-10"])
     assert result.exit_code == 0
-    assert "October 2026" in result.output
+    assert "End of October 2026 Payday" in result.output
     assert "1st On Call - Active" in result.output
     assert "1st On Call - Inactive" in result.output
     assert "17.00 hrs" in result.output
     assert "£150.00" in result.output
+
+    # Test default overtime (next coming payday)
+    result_default = runner.invoke(cli, ["--config", str(env_file), "overtime"])
+    assert result_default.exit_code == 0
+    assert "Payday" in result_default.output
+
+    # Test --last-payday flag
+    result_last = runner.invoke(cli, ["--config", str(env_file), "overtime", "--last-payday"])
+    assert result_last.exit_code == 0
+    assert "Payday" in result_last.output
+
+    # Test --calendar mode
+    result_cal = runner.invoke(cli, ["--config", str(env_file), "overtime", "-c", "-m", "2026-10"])
+    assert result_cal.exit_code == 0
+    assert "Calendar Month: October 2026" in result_cal.output

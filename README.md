@@ -154,21 +154,31 @@ autoharvest sync --shift --hours-per-alert 0.5 --apply
 
 ### `overtime` Options & Usage
 
-Calculate total earned overtime from your logged Harvest timesheets for a given month or custom date range:
+Calculate total earned overtime from your logged Harvest timesheets.
+
+#### Payday Cycle Rule
+By default, `autoharvest overtime` calculates earnings aligned with the company payroll schedule:
+- **1st half of the month (Days 1–15)**: Paid in that same month's payday.
+- **2nd half of the month (Days 16–end)**: Paid in the *next* month's payday (e.g. a shift on 23 November is paid in the end of December payday).
+- **Pay period for end-of-month $M$ payday**: Runs from **$(M-1)\text{-}16$ through $M\text{-}15$** (e.g. End of November Payday covers 16 October – 15 November).
 
 ```bash
-# Calculate overtime for the current month so far (default)
+# Calculate overtime accrued for the next coming payday (default)
 autoharvest overtime
 
-# Calculate overtime for last month
-autoharvest overtime --last-month
+# Calculate overtime for the previous payday cycle
+autoharvest overtime --last-payday
 
-# Calculate overtime for a specific month
-autoharvest overtime --month 2026-10
-autoharvest overtime --month October
+# Calculate overtime for a specific payday month (e.g. End of November payday: 16 Oct – 15 Nov)
+autoharvest overtime --payday November
+autoharvest overtime -p 2026-11
 
-# Show itemized day-by-day table of all time entries
-autoharvest overtime --last-month --detailed
+# Calculate overtime using calendar months instead of payday cycles (e.g. 1st–31st)
+autoharvest overtime --calendar
+autoharvest overtime --calendar --month 2026-10
+
+# Show itemized table of all individual time entries
+autoharvest overtime --detailed
 
 # Custom date range
 autoharvest overtime --since 2026-09-01 --until 2026-09-30

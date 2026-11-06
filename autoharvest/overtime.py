@@ -54,54 +54,179 @@ def parse_month_string(month_str: str, default_year: int) -> tuple[int, int]:
     )
 
 
+def resolve_payday_cycle(
+    ref_date: date,
+    offset_periods: int = 0,
+) -> tuple[str, str, str, str]:
+    """
+    Calculate the pay cycle for a given reference date and offset.
+
+    Payroll rules:
+    - 1st half of month M (Day 1-15) is paid at the end of month M.
+    - 2nd half of month M (Day 16-end) is paid at the end of month M+1.
+    - Pay period for the end of month M payday runs from (M-1)-16 to M-15.
+
+    Returns:
+        (from_date: 'YYYY-MM-DD', to_date: 'YYYY-MM-DD', label: str, payday_title: str)
+    """
+    if ref_date.day <= 15:
+        p_year = ref_date.year
+        p_month = ref_date.month
+    else:
+        if ref_date.month == 12:
+            p_year = ref_date.year + 1
+            p_month = 1
+        else:
+            p_year = ref_date.year
+            p_month = ref_date.month + 1
+
+    total_m = (p_year * 12 + (p_month - 1)) + offset_periods
+    payday_year = total_m // 12
+    payday_month = (total_m % 12) + 1
+
+    cutoff_date = date(payday_year, payday_month, 15)
+
+    prev_m = total_m - 1
+    prev_y = prev_m // 12
+    prev_month = (prev_m % 12) + 1
+    start_date = date(prev_y, prev_month, 16)
+
+    payday_name = date(payday_year, payday_month, 1).strftime("%B %Y")
+    payday_title = f"End of {payday_name} Payday"
+    if start_date.year != cutoff_date.year:
+        period_str = f"{start_date.strftime('%d %b %Y')} – {cutoff_date.strftime('%d %b %Y')}"
+    else:
+        period_str = f"{start_date.strftime('%d %b')} – {cutoff_date.strftime('%d %b %Y')}"
+
+    if start_date <= ref_date <= cutoff_date:
+        label = f"{payday_title} ({period_str}) (accrued to date)"
+    else:
+        label = f"{payday_title} ({period_str})"
+
+    return (
+        start_date.strftime("%Y-%m-%d"),
+        cutoff_date.strftime("%Y-%m-%d"),
+        label,
+        payday_title,
+    )
+
+
+def resolve_payday_for_target_month(
+    target_year: int,
+    target_month: int,
+    ref_date: Optional[date] = None,
+) -> tuple[str, str, str, str]:
+    """Calculate the pay cycle for a specific payday month (e.g. End of November Payday runs 16 Oct – 15 Nov)."""
+    cutoff_date = date(target_year, target_month, 15)
+    total_m = target_year * 12 + (target_month - 1) - 1
+    prev_y = total_m // 12
+    prev_month = (total_m % 12) + 1
+    start_date = date(prev_y, prev_month, 16)
+
+    payday_name = date(target_year, target_month, 1).strftime("%B %Y")
+    payday_title = f"End of {payday_name} Payday"
+    if start_date.year != cutoff_date.year:
+        period_str = f"{start_date.strftime('%d %b %Y')} – {cutoff_date.strftime('%d %b %Y')}"
+    else:
+        period_str = f"{start_date.strftime('%d %b')} – {cutoff_date.strftime('%d %b %Y')}"
+
+    if ref_date and start_date <= ref_date <= cutoff_date:
+        label = f"{payday_title} ({period_str}) (accrued to date)"
+    else:
+        label = f"{payday_title} ({period_str})"
+
+    return (
+        start_date.strftime("%Y-%m-%d"),
+        cutoff_date.strftime("%Y-%m-%d"),
+        label,
+        payday_title,
+    )
+
+
 def resolve_overtime_period(
     month: Optional[str] = None,
+    payday: Optional[str] = None,
+    last_payday: bool = False,
     last_month: bool = False,
     this_month: bool = False,
+    calendar_mode: bool = False,
     since: Optional[str] = None,
     until: Optional[str] = None,
     tz: Optional[ZoneInfo] = None,
+    ref_date: Optional[date] = None,
 ) -> tuple[str, str, str]:
     """
     Determine start date, end date, and descriptive label for an overtime query.
-    Returns: (from_date 'YYYY-MM-DD', to_date 'YYYY-MM-DD', period_label).
+
+    Default:
+    Calculates the pay cycle accrued for the NEXT COMING PAYDAY:
+    - 1st half of month M (1-15): paid end of month M.
+    - 2nd half of month M (16-end): paid end of month M+1.
+    - Cycle runs from (M-1)-16 to M-15.
     """
     target_tz = tz or ZoneInfo("UTC")
-    today = datetime.now(target_tz).date()
+    today = ref_date or datetime.now(target_tz).date()
 
+    # 1. Custom date range
     if since:
         from_date = since.strip()
         to_date = until.strip() if until else today.strftime("%Y-%m-%d")
         return from_date, to_date, f"{from_date} to {to_date}"
 
-    if last_month:
+    # 2. Previous payday
+    if last_payday:
+        from_d, to_d, label, _ = resolve_payday_cycle(today, offset_periods=-1)
+        return from_d, to_d, label
+
+    # 3. Explicit payday specified
+    if payday:
+        year, month_num = parse_month_string(payday, default_year=today.year)
+        from_d, to_d, label, _ = resolve_payday_for_target_month(year, month_num, ref_date=today)
+        return from_d, to_d, label
+
+    # 4. Calendar month modes
+    if calendar_mode:
+        if last_month:
+            first_of_this_month = today.replace(day=1)
+            last_day_of_last_month = first_of_this_month - timedelta(days=1)
+            first_day_of_last_month = last_day_of_last_month.replace(day=1)
+            return (
+                first_day_of_last_month.strftime("%Y-%m-%d"),
+                last_day_of_last_month.strftime("%Y-%m-%d"),
+                f"Calendar Month: {first_day_of_last_month.strftime('%B %Y')}",
+            )
+        if month:
+            year, month_num = parse_month_string(month, default_year=today.year)
+            last_day = calendar.monthrange(year, month_num)[1]
+            start_d = date(year, month_num, 1)
+            end_d = date(year, month_num, last_day)
+            return (
+                start_d.strftime("%Y-%m-%d"),
+                end_d.strftime("%Y-%m-%d"),
+                f"Calendar Month: {start_d.strftime('%B %Y')}",
+            )
+        # this_month in calendar mode
         first_of_this_month = today.replace(day=1)
-        last_day_of_last_month = first_of_this_month - timedelta(days=1)
-        first_day_of_last_month = last_day_of_last_month.replace(day=1)
         return (
-            first_day_of_last_month.strftime("%Y-%m-%d"),
-            last_day_of_last_month.strftime("%Y-%m-%d"),
-            first_day_of_last_month.strftime("%B %Y"),
+            first_of_this_month.strftime("%Y-%m-%d"),
+            today.strftime("%Y-%m-%d"),
+            f"Calendar Month: {today.strftime('%B %Y')} (to date)",
         )
 
+    # 5. If user passed --last-month without --calendar, treat as previous payday
+    if last_month:
+        from_d, to_d, label, _ = resolve_payday_cycle(today, offset_periods=-1)
+        return from_d, to_d, label
+
+    # 6. If user passed --month without --calendar, resolve the payday for that month
     if month:
         year, month_num = parse_month_string(month, default_year=today.year)
-        last_day = calendar.monthrange(year, month_num)[1]
-        start_d = date(year, month_num, 1)
-        end_d = date(year, month_num, last_day)
-        return (
-            start_d.strftime("%Y-%m-%d"),
-            end_d.strftime("%Y-%m-%d"),
-            start_d.strftime("%B %Y"),
-        )
+        from_d, to_d, label, _ = resolve_payday_for_target_month(year, month_num, ref_date=today)
+        return from_d, to_d, label
 
-    # Default / this_month
-    first_of_this_month = today.replace(day=1)
-    return (
-        first_of_this_month.strftime("%Y-%m-%d"),
-        today.strftime("%Y-%m-%d"),
-        f"{today.strftime('%B %Y')} (to date)",
-    )
+    # 7. DEFAULT: Next coming payday!
+    from_d, to_d, label, _ = resolve_payday_cycle(today, offset_periods=0)
+    return from_d, to_d, label
 
 
 def classify_overtime_task(

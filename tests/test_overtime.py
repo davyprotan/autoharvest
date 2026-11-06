@@ -9,6 +9,8 @@ from autoharvest.overtime import (
     classify_overtime_task,
     parse_month_string,
     resolve_overtime_period,
+    resolve_payday_cycle,
+    resolve_payday_for_target_month,
 )
 
 
@@ -35,30 +37,105 @@ def test_parse_month_string():
         parse_month_string("13", 2026)
 
 
+def test_resolve_payday_cycle():
+    # Date on or before 15th (e.g. Nov 6) -> End of Nov Payday (16 Oct to 15 Nov)
+    ref1 = date(2026, 11, 6)
+    start1, end1, label1, title1 = resolve_payday_cycle(ref1)
+    assert start1 == "2026-10-16"
+    assert end1 == "2026-11-15"
+    assert title1 == "End of November 2026 Payday"
+    assert "(accrued to date)" in label1
+
+    # Date after 15th (e.g. Nov 23) -> End of Dec Payday (16 Nov to 15 Dec)
+    ref2 = date(2026, 11, 23)
+    start2, end2, label2, title2 = resolve_payday_cycle(ref2)
+    assert start2 == "2026-11-16"
+    assert end2 == "2026-12-15"
+    assert title2 == "End of December 2026 Payday"
+    assert "(accrued to date)" in label2
+
+    # Previous payday cycle (offset=-1) from Nov 6 -> End of Oct Payday (16 Sep to 15 Oct)
+    start_prev, end_prev, label_prev, title_prev = resolve_payday_cycle(ref1, offset_periods=-1)
+    assert start_prev == "2026-09-16"
+    assert end_prev == "2026-10-15"
+    assert title_prev == "End of October 2026 Payday"
+    assert "(accrued to date)" not in label_prev
+
+    # Year boundary transition (Dec 20) -> End of Jan 2027 Payday (16 Dec 2026 to 15 Jan 2027)
+    ref_yearend = date(2026, 12, 20)
+    start_y, end_y, label_y, title_y = resolve_payday_cycle(ref_yearend)
+    assert start_y == "2026-12-16"
+    assert end_y == "2027-01-15"
+    assert title_y == "End of January 2027 Payday"
+    assert "16 Dec 2026 – 15 Jan 2027" in label_y
+
+
+def test_resolve_payday_for_target_month():
+    start, end, label, title = resolve_payday_for_target_month(2026, 11)
+    assert start == "2026-10-16"
+    assert end == "2026-11-15"
+    assert title == "End of November 2026 Payday"
+    assert "16 Oct – 15 Nov 2026" in label
+
+    # January target month spans across previous year
+    start_jan, end_jan, label_jan, title_jan = resolve_payday_for_target_month(2027, 1)
+    assert start_jan == "2026-12-16"
+    assert end_jan == "2027-01-15"
+    assert title_jan == "End of January 2027 Payday"
+    assert "16 Dec 2026 – 15 Jan 2027" in label_jan
+
+
 def test_resolve_overtime_period():
     tz = ZoneInfo("UTC")
+    ref_date = date(2026, 11, 6)
 
-    # Explicit since and until
-    start, end, label = resolve_overtime_period(since="2026-05-01", until="2026-05-15", tz=tz)
+    # 1. Custom since and until
+    start, end, label = resolve_overtime_period(since="2026-05-01", until="2026-05-15", tz=tz, ref_date=ref_date)
     assert start == "2026-05-01"
     assert end == "2026-05-15"
     assert "2026-05-01 to 2026-05-15" in label
 
-    # Specific month
-    start, end, label = resolve_overtime_period(month="2026-10", tz=tz)
+    # 2. Default: next coming payday (for Nov 6, it is End of Nov Payday 16 Oct – 15 Nov)
+    start, end, label = resolve_overtime_period(tz=tz, ref_date=ref_date)
+    assert start == "2026-10-16"
+    assert end == "2026-11-15"
+    assert "End of November 2026 Payday" in label
+    assert "(accrued to date)" in label
+
+    # 3. Explicit payday
+    start, end, label = resolve_overtime_period(payday="2026-10", tz=tz, ref_date=ref_date)
+    assert start == "2026-09-16"
+    assert end == "2026-10-15"
+    assert "End of October 2026 Payday" in label
+
+    # 4. Last payday
+    start, end, label = resolve_overtime_period(last_payday=True, tz=tz, ref_date=ref_date)
+    assert start == "2026-09-16"
+    assert end == "2026-10-15"
+    assert "End of October 2026 Payday" in label
+
+    # 5. Month option without calendar flag defaults to payday cycle
+    start, end, label = resolve_overtime_period(month="October", tz=tz, ref_date=ref_date)
+    assert start == "2026-09-16"
+    assert end == "2026-10-15"
+
+    # 6. Calendar mode: specific month
+    start, end, label = resolve_overtime_period(month="2026-10", calendar_mode=True, tz=tz, ref_date=ref_date)
     assert start == "2026-10-01"
     assert end == "2026-10-31"
-    assert label == "October 2026"
+    assert "Calendar Month: October 2026" in label
 
-    # Last month
-    start, end, label = resolve_overtime_period(last_month=True, tz=tz)
-    assert start.endswith("-01")
-    assert label != ""
+    # 7. Calendar mode: last month
+    start, end, label = resolve_overtime_period(last_month=True, calendar_mode=True, tz=tz, ref_date=ref_date)
+    assert start == "2026-10-01"
+    assert end == "2026-10-31"
+    assert "Calendar Month: October 2026" in label
 
-    # This month default
-    start, end, label = resolve_overtime_period(this_month=True, tz=tz)
-    assert start.endswith("-01")
-    assert "to date" in label
+    # 8. Calendar mode: this month
+    start, end, label = resolve_overtime_period(this_month=True, calendar_mode=True, tz=tz, ref_date=ref_date)
+    assert start == "2026-11-01"
+    assert end == "2026-11-06"
+    assert "Calendar Month: November 2026 (to date)" in label
 
 
 def test_classify_overtime_task():
