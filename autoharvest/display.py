@@ -7,6 +7,7 @@ from rich.table import Table
 from rich.text import Text
 
 from autoharvest.models import (
+    EstimatedPayBreakdown,
     HarvestProject,
     HarvestUser,
     OvertimeReport,
@@ -293,3 +294,77 @@ def display_overtime_report(report: OvertimeReport, detailed: bool = False) -> N
 
     summary_text = "\n".join(summary_lines)
     console.print(Panel(summary_text, title=f"[bold green]OVERTIME EARNINGS — {report.period_label}[/]", border_style="green"))
+
+
+def display_estimated_pay(pay: EstimatedPayBreakdown, period_label: str) -> None:
+    """Display estimated take-home pay, comparing base salary, overtime deductions, and overall net pay."""
+    cur = pay.currency_symbol
+
+    # Table comparing Base Salary, Overtime, and Total Month
+    table = Table(
+        title=f"Estimated Monthly Pay Breakdown — {period_label}",
+        show_header=True,
+        header_style="bold white on navy_blue",
+    )
+    table.add_column("Component", style="bold")
+    table.add_column("Base Salary", justify="right", style="cyan")
+    table.add_column("Overtime Accrued", justify="right", style="yellow")
+    table.add_column("Total Month", justify="right", style="bold green")
+
+    table.add_row(
+        "Gross Pay",
+        f"{cur}{pay.base_monthly_gross:,.2f}",
+        f"{cur}{pay.overtime_gross:,.2f}",
+        f"{cur}{pay.total_monthly_gross:,.2f}",
+    )
+    table.add_row(
+        "Estimated Income Tax (PAYE)",
+        f"-{cur}{pay.base_tax:,.2f}",
+        f"-{cur}{pay.overtime_tax:,.2f}",
+        f"-{cur}{pay.total_tax:,.2f}",
+    )
+    table.add_row(
+        "National Insurance (Class 1)",
+        f"-{cur}{pay.base_ni:,.2f}",
+        f"-{cur}{pay.overtime_ni:,.2f}",
+        f"-{cur}{pay.total_ni:,.2f}",
+    )
+    table.add_section()
+    table.add_row(
+        "[bold]ESTIMATED TAKE-HOME (NET)[/]",
+        f"[bold cyan]{cur}{pay.base_net:,.2f}[/]",
+        f"[bold yellow]{cur}{pay.overtime_net:,.2f}[/]",
+        f"[bold green]{cur}{pay.total_net:,.2f}[/]",
+    )
+
+    console.print(table)
+
+    ot_deduction_pct = (
+        ((pay.overtime_tax + pay.overtime_ni) / pay.overtime_gross * 100.0)
+        if pay.overtime_gross > 0
+        else 0.0
+    )
+
+    summary_lines = [
+        f"• [bold]Annual Base Salary:[/] {cur}{pay.annual_salary:,.2f} ({cur}{pay.base_monthly_gross:,.2f}/mo gross)",
+        f"• [bold]Overtime Accrued:[/] {cur}{pay.overtime_gross:,.2f}",
+        f"• [bold]Total Estimated Gross:[/] {cur}{pay.total_monthly_gross:,.2f}",
+        f"• [bold]Total Deductions:[/] -{cur}{(pay.total_tax + pay.total_ni):,.2f} "
+        f"(Tax: {cur}{pay.total_tax:,.2f} | NI: {cur}{pay.total_ni:,.2f})",
+        "",
+        f"💵  [bold green]ESTIMATED TAKE-HOME PAY: {cur}{pay.total_net:,.2f}[/]",
+        f"    ├─ Base Salary Net: [cyan]{cur}{pay.base_net:,.2f}[/]",
+        f"    └─ Overtime In-Pocket: [bold yellow]{cur}{pay.overtime_net:,.2f}[/] "
+        f"[dim]({ot_deduction_pct:.1f}% effective tax/NI deduction)[/dim]",
+        "",
+        "[dim]Note: Estimated using standard UK PAYE & Class 1 National Insurance rates (England/Wales/NI).[/dim]",
+        "[dim]Excludes voluntary pension contributions, student loans, or custom tax codes.[/dim]",
+    ]
+
+    console.print(
+        Panel(
+            "\n".join(summary_lines),
+            title=f"[bold green]💰 ESTIMATED TAKE-HOME PAY — {period_label}[/]",
+            border_style="green",
+        )
+    )

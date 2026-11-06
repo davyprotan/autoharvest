@@ -123,3 +123,22 @@ def test_cli_overtime(mock_harvest_cls, tmp_path: Path):
     result_cal = runner.invoke(cli, ["--config", str(env_file), "overtime", "-c", "-m", "2026-10"])
     assert result_cal.exit_code == 0
     assert "Calendar Month: October 2026" in result_cal.output
+
+    # Test --pay when no salary is configured
+    result_pay_nosal = runner.invoke(cli, ["--config", str(env_file), "overtime", "--pay"])
+    assert result_pay_nosal.exit_code == 0
+    assert "To view estimated take-home pay, specify your annual salary" in result_pay_nosal.output
+
+    # Test --salary option overrides/provides salary
+    result_salary = runner.invoke(cli, ["--config", str(env_file), "overtime", "--salary", "48000"])
+    assert result_salary.exit_code == 0
+    assert "ESTIMATED TAKE-HOME" in result_salary.output
+    assert "Estimated Monthly Pay Breakdown" in result_salary.output
+
+    # Test --pay when salary is in .env
+    env_file_with_sal = tmp_path / ".env.sal"
+    env_file_with_sal.write_text("PAGERDUTY_API_TOKEN=tok\nHARVEST_ACCESS_TOKEN=tok\nHARVEST_ACCOUNT_ID=123\nANNUAL_SALARY=54000\n")
+    result_pay_env = runner.invoke(cli, ["--config", str(env_file_with_sal), "overtime", "--pay"])
+    assert result_pay_env.exit_code == 0
+    assert "ESTIMATED TAKE-HOME" in result_pay_env.output
+    assert "Annual Base Salary: £54,000.00" in result_pay_env.output

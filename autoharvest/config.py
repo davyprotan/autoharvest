@@ -27,6 +27,7 @@ class Config:
     rate_active: float = 30.0
     rate_out_of_hours: float = 30.0
     currency_symbol: str = "£"
+    annual_salary: Optional[float] = None
 
     def get_tz(self) -> ZoneInfo:
         try:
@@ -102,9 +103,18 @@ def load_config(env_path: Optional[str | Path] = None) -> Config:
     def parse_float(key: str, default: float) -> float:
         val = os.getenv(key, "").strip()
         try:
-            return float(val)
+            return float(val.replace("£", "").replace("$", "").replace(",", ""))
         except ValueError:
             return default
+
+    def parse_optional_float(key: str) -> Optional[float]:
+        val = os.getenv(key, "").strip()
+        if not val:
+            return None
+        try:
+            return float(val.replace("£", "").replace("$", "").replace(",", ""))
+        except ValueError:
+            return None
 
     tz = os.getenv("TIMEZONE", "").strip() or get_default_timezone()
 
@@ -115,6 +125,7 @@ def load_config(env_path: Optional[str | Path] = None) -> Config:
     rate_active = parse_float("RATE_ACTIVE", 30.0)
     rate_out_of_hours = parse_float("RATE_OUT_OF_HOURS", 30.0)
     currency_symbol = os.getenv("CURRENCY_SYMBOL", "£").strip() or "£"
+    annual_salary = parse_optional_float("ANNUAL_SALARY")
 
     return Config(
         pagerduty_api_token=os.getenv("PAGERDUTY_API_TOKEN", "").strip(),
@@ -133,6 +144,7 @@ def load_config(env_path: Optional[str | Path] = None) -> Config:
         rate_active=rate_active,
         rate_out_of_hours=rate_out_of_hours,
         currency_symbol=currency_symbol,
+        annual_salary=annual_salary,
     )
 
 

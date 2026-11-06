@@ -180,9 +180,23 @@ autoharvest overtime --calendar --month 2026-10
 # Show itemized table of all individual time entries
 autoharvest overtime --detailed
 
+# View estimated take-home pay and tax deductions (using configured ANNUAL_SALARY)
+autoharvest overtime --pay
+
+# Override annual gross salary on the fly
+autoharvest overtime --salary 48000
+
 # Custom date range
 autoharvest overtime --since 2026-09-01 --until 2026-09-30
 ```
+
+#### Estimated Take-Home Pay & Tax Deductions
+With `--pay` (or `--salary <AMOUNT>`), `autoharvest` calculates estimated monthly take-home pay under standard UK PAYE and Class 1 National Insurance rules:
+- **Base Salary Breakdown**: Monthly gross, estimated Income Tax, National Insurance, and net salary.
+- **Overtime Marginal Deductions**: Exact tax and NI deducted specifically from the overtime earnings, plus net overtime in-pocket and effective deduction rate.
+- **Total Month Reconciled**: Overall gross, total deductions, and estimated net paycheck for the coming payday.
+
+To configure your annual gross salary permanently, run `autoharvest configure` (Step 6) or add `ANNUAL_SALARY=48000` to `.env`.
 
 #### Hourly Rates
 - **1st On Call - Active**: £30.00 / hr (override with `--rate-active <FLOAT>` or `RATE_ACTIVE` in `.env`)

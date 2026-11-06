@@ -196,3 +196,28 @@ class OvertimeReport:
     total_hours: float
     total_earned: float
     currency_symbol: str = "£"
+
+
+@dataclass
+class EstimatedPayBreakdown:
+    annual_salary: float
+    base_monthly_gross: float
+    overtime_gross: float
+    total_monthly_gross: float
+
+    # Base month (without overtime)
+    base_tax: float
+    base_ni: float
+    base_net: float
+
+    # Overtime marginal deductions
+    overtime_tax: float
+    overtime_ni: float
+    overtime_net: float
+
+    # Total month (base + overtime)
+    total_tax: float
+    total_ni: float
+    total_net: float
+
+    currency_symbol: str = "£"

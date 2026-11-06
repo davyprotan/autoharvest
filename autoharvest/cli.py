@@ -9,6 +9,7 @@ from rich.prompt import Confirm, FloatPrompt, Prompt
 from autoharvest.config import Config, get_default_timezone, load_config, save_config_to_env
 from autoharvest.display import (
     console,
+    display_estimated_pay,
     display_overtime_report,
     display_projects_table,
     display_shifts_table,
@@ -18,6 +19,7 @@ from autoharvest.display import (
 )
 from autoharvest.harvest import HarvestAPIError, HarvestClient
 from autoharvest.overtime import calculate_overtime_report, resolve_overtime_period
+from autoharvest.payroll import calculate_estimated_pay
 from autoharvest.pagerduty import PagerDutyAPIError, PagerDutyClient
 from autoharvest.sync import (
     create_sync_plan,
@@ -277,6 +279,25 @@ def setup_cmd(ctx: click.Context) -> None:
     detected_tz = cfg.timezone or get_default_timezone()
     chosen_tz = Prompt.ask("\nEnter [bold]Timezone[/] for date grouping", default=detected_tz)
 
+    # 6. Annual Gross Salary (Optional)
+    console.print(
+        "\n[bold]Annual Gross Salary (Optional)[/]\n"
+        "[dim]Used to calculate estimated Income Tax (PAYE), National Insurance, and take-home pay\n"
+        "in 'autoharvest overtime --pay'. You can leave this blank to skip.[/dim]"
+    )
+    salary_default = f"{cfg.annual_salary:.0f}" if cfg.annual_salary else ""
+    salary_input = Prompt.ask(
+        "Enter your [bold]yearly annual income before tax[/] (e.g. 45000) [dim][Enter to skip][/dim]",
+        default=salary_default,
+    )
+    annual_salary_val: Optional[float] = None
+    if salary_input.strip():
+        try:
+            cleaned_salary = salary_input.replace("£", "").replace("$", "").replace(",", "").strip()
+            annual_salary_val = float(cleaned_salary)
+        except ValueError:
+            console.print("[yellow]Invalid salary entered, skipping.[/yellow]")
+
     # Save to .env
     env_updates = {
         "PAGERDUTY_API_TOKEN": pd_token,
@@ -291,6 +312,8 @@ def setup_cmd(ctx: click.Context) -> None:
         "HOURS_PER_ALERT": str(unsociable_hours),
         "TIMEZONE": chosen_tz,
     }
+    if annual_salary_val is not None:
+        env_updates["ANNUAL_SALARY"] = f"{annual_salary_val:.2f}"
 
     env_path = save_config_to_env(env_updates)
     console.print(f"\n[bold green]✓ Configuration saved to {env_path.resolve()}[/]")
@@ -496,6 +519,8 @@ def sync_cmd(
 @click.option("--last-month", is_flag=True, default=False, help="Calculate overtime for the previous period (payday cycle or calendar month).")
 @click.option("--this-month", is_flag=True, default=False, help="Calculate overtime for the current period to date.")
 @click.option("--calendar", "-c", is_flag=True, default=False, help="Use calendar month (1st to end) instead of payday cycle (16th to 15th).")
+@click.option("--pay", is_flag=True, default=False, help="Calculate and display estimated take-home pay and tax deductions for the month.")
+@click.option("--salary", type=float, default=None, help="Override annual gross salary before tax (e.g. 45000).")
 @click.option("--since", default=None, help="Custom start date (YYYY-MM-DD).")
 @click.option("--until", default=None, help="Custom end date (YYYY-MM-DD).")
 @click.option("--detailed", "-d", is_flag=True, default=False, help="Show itemized list of all logged time entries.")
@@ -511,6 +536,8 @@ def overtime_cmd(
     last_month: bool,
     this_month: bool,
     calendar: bool,
+    pay: bool,
+    salary: Optional[float],
     since: Optional[str],
     until: Optional[str],
     detailed: bool,
@@ -575,13 +602,49 @@ def overtime_cmd(
         console.print(f"[bold red]Harvest API Error:[/] {e}")
         raise click.Abort()
 
+    show_pay = pay or (salary is not None)
+    effective_salary = salary if salary is not None else cfg.annual_salary
+
     if not report.items:
         console.print(
             f"[yellow]No overtime time entries found in Harvest for {period_label} ({from_date} to {to_date}).[/yellow]"
         )
+        if show_pay:
+            if effective_salary is None:
+                console.print(
+                    "\n[bold yellow]Notice:[/] To view estimated take-home pay, specify your annual salary with "
+                    "[bold cyan]--salary <AMOUNT>[/] or save it via [bold cyan]autoharvest configure[/]."
+                )
+            else:
+                estimated_pay = calculate_estimated_pay(
+                    annual_salary=effective_salary,
+                    overtime_gross=0.0,
+                    currency_symbol=cfg.currency_symbol,
+                )
+                console.print("")
+                display_estimated_pay(estimated_pay, period_label=period_label)
         return
 
     display_overtime_report(report, detailed=detailed)
+
+    if show_pay:
+        if effective_salary is None:
+            console.print(
+                "\n[bold yellow]Notice:[/] To view estimated take-home pay, specify your annual salary with "
+                "[bold cyan]--salary <AMOUNT>[/] or save it via [bold cyan]autoharvest configure[/]."
+            )
+        else:
+            estimated_pay = calculate_estimated_pay(
+                annual_salary=effective_salary,
+                overtime_gross=report.total_earned,
+                currency_symbol=cfg.currency_symbol,
+            )
+            console.print("")
+            display_estimated_pay(estimated_pay, period_label=period_label)
+    elif cfg.annual_salary is not None:
+        console.print(
+            "\n[dim]Tip: Run [bold]autoharvest overtime --pay[/bold] to see estimated tax deductions and take-home pay.[/dim]"
+        )
 
 
 def main() -> None:

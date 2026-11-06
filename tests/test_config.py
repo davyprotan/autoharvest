@@ -42,6 +42,7 @@ def test_save_and_load_config(tmp_path: Path):
         "SOCIABLE_HOURS_PER_ALERT": "0.5",
         "UNSOCIABLE_HOURS_PER_ALERT": "1.0",
         "TIMEZONE": "Europe/London",
+        "ANNUAL_SALARY": "52000.00",
     }
     saved_path = save_config_to_env(updates, target_path=env_file)
     assert saved_path.exists()
@@ -56,4 +57,5 @@ def test_save_and_load_config(tmp_path: Path):
     assert cfg.sociable_hours_per_alert == 0.5
     assert cfg.unsociable_hours_per_alert == 1.0
     assert cfg.timezone == "Europe/London"
+    assert cfg.annual_salary == 52000.0
     assert cfg.get_tz() == ZoneInfo("Europe/London")
