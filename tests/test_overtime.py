@@ -291,6 +291,8 @@ def test_calculate_overtime_report_excludes_normal_work_and_scopes_to_user():
     assert len(report.items) == 2
     assert report.total_hours == 3.0
     assert report.total_earned == 2.0 * 6.0 + 1.0 * 30.0
+    # Normal work is left out of the totals but still reported, so it isn't silently lost.
+    assert report.excluded_hours == {"Client X / Development": 7.5}
     # Active sorts before Inactive ("active" is a substring of "inactive")
     assert [c.category for c in report.categories] == [
         "1st On Call - Active",

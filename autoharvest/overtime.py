@@ -277,12 +277,16 @@ def calculate_overtime_report(
 
     items: list[OvertimeItem] = []
     category_buckets: dict[tuple[str, str, int, float], list[OvertimeItem]] = {}
+    excluded_hours: dict[str, float] = {}
 
     for entry in entries:
         tname = entry.task_name or f"Task {entry.task_id}"
         pname = entry.project_name or f"Project {entry.project_id}"
         classified = classify_overtime_task(tname, pname, rates)
         if classified is None:
+            # Not overtime, but report it so a misnamed on-call task isn't silently lost.
+            key = f"{pname} / {tname}"
+            excluded_hours[key] = excluded_hours.get(key, 0.0) + entry.hours
             continue
         category, rate = classified
 
@@ -338,4 +342,5 @@ def calculate_overtime_report(
         total_hours=total_hours,
         total_earned=total_earned,
         currency_symbol=currency_symbol,
+        excluded_hours=excluded_hours,
     )
