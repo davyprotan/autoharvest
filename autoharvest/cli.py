@@ -20,6 +20,7 @@ from autoharvest.display import (
 from autoharvest.harvest import HarvestAPIError, HarvestClient
 from autoharvest.overtime import calculate_overtime_report, resolve_overtime_period
 from autoharvest.payroll import calculate_estimated_pay
+from autoharvest.config_cmd import config_group
 from autoharvest.pagerduty import PagerDutyAPIError, PagerDutyClient
 from autoharvest.sync import (
     create_sync_plan,
@@ -298,8 +299,16 @@ def setup_cmd(ctx: click.Context) -> None:
         except ValueError:
             console.print("[yellow]Invalid salary entered, skipping.[/yellow]")
 
+    # 7. Booking style
+    align_to_clock = Confirm.ask(
+        "\nBook each alert as the [bold]clock hour/half-hour[/] it falls in? "
+        "[dim](e.g. an alert at 04:37 is logged as 04:00-05:00; No = start at the alert time)[/dim]",
+        default=cfg.align_to_clock,
+    )
+
     # Save to .env
     env_updates = {
+        "ALIGN_TO_CLOCK": "true" if align_to_clock else "false",
         "PAGERDUTY_API_TOKEN": pd_token,
         "PAGERDUTY_USER_ID": pd_user_id or "",
         "HARVEST_ACCESS_TOKEN": harvest_token,
@@ -658,6 +667,9 @@ def overtime_cmd(
 
 def main() -> None:
     cli(obj={})
+
+
+cli.add_command(config_group)
 
 
 if __name__ == "__main__":
