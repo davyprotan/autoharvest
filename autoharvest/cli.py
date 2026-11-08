@@ -333,6 +333,13 @@ def setup_cmd(ctx: click.Context) -> None:
 @click.option("--apply", "-y", "apply_changes", is_flag=True, default=False, help="Submit changes to Harvest directly.")
 @click.option("--dry-run", is_flag=True, default=False, help="Preview without making any changes.")
 @click.option("--all-alerts", is_flag=True, default=False, help="Process all acknowledged alerts without filtering to scheduled on-call shifts.")
+@click.option(
+    "--align-to-clock/--from-alert-time",
+    "align_to_clock",
+    default=None,
+    help="Book each alert as the clock hour/half-hour it falls in (04:37 -> 04:00-05:00) "
+    "instead of starting at the alert time. Default: ALIGN_TO_CLOCK in .env, else off.",
+)
 @click.option("--show-non-oncall", is_flag=True, default=False, help="Include alerts that occurred outside on-call shifts in the preview table.")
 @click.pass_context
 def sync_cmd(
@@ -349,6 +356,7 @@ def sync_cmd(
     apply_changes: bool,
     dry_run: bool,
     all_alerts: bool,
+    align_to_clock: Optional[bool],
     show_non_oncall: bool,
 ) -> None:
     """Sync acknowledged PagerDuty alerts to Harvest time tracking."""
@@ -444,6 +452,7 @@ def sync_cmd(
                 tz=tz,
                 filter_oncall_shifts=not all_alerts,
                 include_non_oncall=show_non_oncall,
+                align_to_clock=cfg.align_to_clock if align_to_clock is None else align_to_clock,
                 progress_callback=update_progress,
             )
         except Exception as e:
