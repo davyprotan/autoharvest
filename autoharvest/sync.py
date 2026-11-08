@@ -77,6 +77,20 @@ def is_sociable_hours(dt: datetime, tz: ZoneInfo) -> bool:
         return local_time >= time(17, 30)
 
 
+def clock_slot_start(dt: datetime, hours: float, tz: ZoneInfo) -> datetime:
+    """
+    Start of the clock-aligned slot that `dt` falls in, counting slots of `hours` from local
+    midnight. With 1h slots 04:37 -> 04:00; with 0.5h slots 17:42 -> 17:30.
+    """
+    local = dt.astimezone(tz)
+    slot_minutes = max(1, round(hours * 60))
+    minutes = local.hour * 60 + local.minute
+    start_minutes = minutes - minutes % slot_minutes
+    return local.replace(
+        hour=start_minutes // 60, minute=start_minutes % 60, second=0, microsecond=0
+    )
+
+
 def is_alert_during_shift(
     alert: AcknowledgedIncident,
     shifts: list[PagerDutyShift],
@@ -123,20 +137,6 @@ def resolve_shift_window(
             chosen = shifts[0]
 
     return chosen.start, min(chosen.end, now), chosen
-
-
-def clock_slot_start(dt: datetime, hours: float, tz: ZoneInfo) -> datetime:
-    """
-    Start of the clock-aligned slot that `dt` falls in, counting slots of `hours` from local
-    midnight. With 1h slots 04:37 -> 04:00; with 0.5h slots 17:42 -> 17:30.
-    """
-    local = dt.astimezone(tz)
-    slot_minutes = max(1, round(hours * 60))
-    minutes = local.hour * 60 + local.minute
-    start_minutes = minutes - minutes % slot_minutes
-    return local.replace(
-        hour=start_minutes // 60, minute=start_minutes % 60, second=0, microsecond=0
-    )
 
 
 def create_sync_plan(
