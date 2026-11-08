@@ -182,6 +182,7 @@ def test_cli_setup_writes_to_config_path(mock_harvest_cls, mock_pd_cls, tmp_path
         return str(kwargs.get("default", ""))
     monkeypatch.setattr("autoharvest.cli.Prompt.ask", fake_prompt_ask)
     monkeypatch.setattr("autoharvest.cli.FloatPrompt.ask", lambda *a, **k: k.get("default", 1.0))
+    monkeypatch.setattr("autoharvest.cli.Confirm.ask", lambda *a, **k: k.get("default", False))
 
     result = CliRunner().invoke(cli, ["--config", str(custom_env), "setup"])
 
