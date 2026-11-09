@@ -17,7 +17,8 @@ class PagerDutyAPIError(Exception):
         self.response_text = response_text
 
 
-# PagerDuty returns HTTP 400 once offset + limit exceeds 10,000 on classic pagination.
+# The live API returns HTTP 400 ("Offset must be less than 10001") for offsets above 10,000.
+# PagerDuty's docs state a stricter rule (offset + limit <= 10,000), which is the one followed here.
 PAGERDUTY_MAX_OFFSET = 10000
 # Smallest window the log entry fetch will split down to before giving up.
 MIN_SPLIT_WINDOW = timedelta(minutes=1)
@@ -151,7 +152,7 @@ class PagerDutyClient:
         """
         Yield pages of account-wide log entries between `since` and `until`.
 
-        PagerDuty returns HTTP 400 once offset + limit exceeds 10,000. If a window
+        Pages stay within offset + limit <= 10,000, the documented limit. If a window
         holds more than that, it is split in half and each half fetched instead.
         A window is only yielded once fully fetched, so a split never yields
         duplicate pages.
@@ -200,7 +201,7 @@ class PagerDutyClient:
         PagerDuty has no per-user log entry endpoint, so this pages through the
         account-wide /log_entries and keeps only acknowledgements by this user.
         Requests are chunked by `chunk_days` (default: 1 day); a chunk that holds
-        more than PagerDuty's 10,000-record pagination limit is split in half
+        more than the 10,000 records that fit within PagerDuty's pagination limit is split in half
         automatically, so results are never silently truncated.
         Deduplicates if the same incident was acknowledged multiple times.
         """
