@@ -731,3 +731,27 @@ def test_execute_sync_plan_does_not_cross_midnight():
     assert kwargs["hours"] == 1.0
     assert kwargs["started_time"] == "22:59"
     assert kwargs["ended_time"] == "23:59"
+
+
+def test_execute_sync_plan_keeps_a_window_ending_exactly_at_midnight():
+    from autoharvest.models import SyncItem
+
+    harvest_mock = MagicMock()
+    harvest_mock.format_time_for_harvest.side_effect = lambda dt: dt.strftime("%H:%M")
+    harvest_mock.create_time_entry.return_value = HarvestTimeEntry(
+        id=1, spent_date="2026-11-08", hours=0.5, notes="", project_id=1, task_id=2
+    )
+    t = datetime(2026, 11, 8, 23, 30, tzinfo=timezone.utc)
+    inc = AcknowledgedIncident(
+        incident_id="PD9", incident_number=9, title="Alert", service_name="Core", urgency="high",
+        html_url="https://pd/9", acknowledged_at=t, spent_date="2026-11-08", log_entry_id="L9",
+    )
+    item = SyncItem(incident=inc, hours=0.5, status=SyncStatus.PENDING_CREATION)
+    plan = SyncPlan(since=t, until=t, items=[item], project_id=1, task_id=2)
+
+    execute_sync_plan(harvest_mock, plan, tz=timezone.utc)
+
+    kwargs = harvest_mock.create_time_entry.call_args.kwargs
+    assert (kwargs["started_time"], kwargs["ended_time"], kwargs["spent_date"], kwargs["hours"]) == (
+        "23:30", "00:00", "2026-11-08", 0.5
+    )
