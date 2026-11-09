@@ -319,18 +319,9 @@ def execute_sync_plan(
         # Calculate start and end times in user's target timezone
         start_dt = item.incident.event_time.astimezone(effective_tz)
         end_dt = start_dt + timedelta(hours=item.hours)
-        # A Harvest segment belongs to a single spent_date. If the window would run
-        # past midnight, shift it earlier so it ends at 23:59 on the alert's day and
-        # keeps its full duration (rather than ending before it starts). A window that
-        # ends exactly at midnight is fine as it is: Harvest accepts 23:30-00:00 as 0.5h.
-        spent_date = start_dt.strftime("%Y-%m-%d")
-        end_of_day = start_dt.replace(hour=23, minute=59, second=0, microsecond=0)
-        next_midnight = end_of_day + timedelta(minutes=1)
-        if end_dt > next_midnight:
-            end_dt = end_of_day
-            start_dt = end_dt - timedelta(hours=item.hours)
         started_time_str = harvest_client.format_time_for_harvest(start_dt)
         ended_time_str = harvest_client.format_time_for_harvest(end_dt)
+        spent_date = start_dt.strftime("%Y-%m-%d")
 
         try:
             entry = harvest_client.create_time_entry(
