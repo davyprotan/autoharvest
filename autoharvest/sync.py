@@ -288,7 +288,6 @@ def create_sync_plan(
     from_date = since.astimezone(tz).strftime("%Y-%m-%d")
     to_date = until.astimezone(tz).strftime("%Y-%m-%d")
     existing_entries = harvest_client.get_time_entries(from_date=from_date, to_date=to_date)
-    busy = busy_intervals(existing_entries, project_id, task_id, tz) if skip_covered else []
 
     # 4. Apply on-call shift filtering and windowing
     items: list[SyncItem] = []
@@ -296,6 +295,8 @@ def create_sync_plan(
     window_source: Optional[AcknowledgedIncident] = None
     current_window_duration: float = 1.0
     non_oncall_count = 0
+    # Time already logged on this project/task, so covered slots aren't booked twice.
+    busy = busy_intervals(existing_entries, project_id, task_id, tz) if skip_covered else []
 
     for inc in all_incidents:
         alert_time = inc.event_time
