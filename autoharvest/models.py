@@ -181,7 +181,16 @@ class SyncPlan:
 
     @property
     def total_logged_hours(self) -> float:
-        return sum(item.hours for item in self.already_logged_items)
+        """Hours already in Harvest, counting each entry once even if several alerts point at it."""
+        seen: set[int] = set()
+        total = 0.0
+        for item in self.already_logged_items:
+            if item.harvest_entry_id is not None:
+                if item.harvest_entry_id in seen:
+                    continue
+                seen.add(item.harvest_entry_id)
+            total += item.hours
+        return total
 
 
 @dataclass

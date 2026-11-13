@@ -224,3 +224,16 @@ def test_cli_preview_and_apply_covered_only(tmp_path, monkeypatch):
         harvest.append_note_line.assert_called_once_with(901, "PG#1 - Core - Alert 1")
         harvest.create_time_entry.assert_not_called()
         assert "Added to entry 901" in applied.output
+
+
+def test_logged_hours_count_each_entry_once():
+    """Saturday 7 Nov: two alert lines on one 2h ticket must not count as 4h."""
+    ticket = entry(1001, 7, "1:00", "3:00", "SF#00977519 - wild card - vpn cert\n"
+                   "PG#407582 - Go Response - Sohonet Fault Report\nPG#407589 - Webservers - SSL Certificate")
+    ticket.hours = 2.0
+    other = entry(1002, 7, "3:00", "4:00", "SF#00977532 - cvf - group\nPG#407590 - Datacenters - AD unreachable")
+    other.hours = 1.0
+    alerts = [incident(407582, at(7, 1, 6)), incident(407589, at(7, 2, 36)), incident(407590, at(7, 3, 30))]
+    plan = plan_for(alerts, [ticket, other], 7)
+    assert [i.status for i in plan.items] == [SyncStatus.ALREADY_LOGGED] * 3
+    assert plan.total_logged_hours == 3.0
